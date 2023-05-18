@@ -39,6 +39,7 @@
  #  define TYPEINTERPRETF2U(name) __riscv_ ## name ## _f32m1_u32m1
  #  define TYPEINTERPRETU2F(name) __riscv_ ## name ## _u32m1_f32m1
  #  define TYPEMEM(name) __riscv_ ## name ## e32_v_f32m1
+ #  define VETYPE e32
  #else
  #  define DS(d,s) d /* double-precision option */
  #  define TYPE(name) __riscv_ ## name ## _f64m1
@@ -46,16 +47,8 @@
  #  define TYPEINTERPRETF2U(name) __riscv_ ## name ## _f64m1_u64m1
  #  define TYPEINTERPRETU2F(name) __riscv_ ## name ## _u64m1_f64m1
  #  define TYPEMEM(name) __riscv_ ## name ## e64_v_f64m1
+ #  define VETYPE e64
  #endif
-
-// Get vector length from register
-#define VL(VLEN) 		    \
-    __asm__ volatile ( 		\
-	"sw vl, (%0) \n\t" 	    \
-	:			            \
-	:"m"(VLEN) 		        \
-    )	
-
 
 #define ZERO DS(0.0,0.0f)
 
@@ -63,13 +56,19 @@
 typedef DS(double*, float*) V;
 typedef DS(uint64_t*, uint32_t*) Vuint;
 
-// Add these for scalars?
-typedef DS(double, float) S;
-typedef DS(uint64_t, uint32_t) Suint;
+// Get vector length from register
+#define VL(VLEN,vetype) VL2(VLEN,vetype)
+#define VL2(VLEN,vetype)                                               \
+    __asm__ volatile(                                               \
+        "vsetvli %0, zero, " #vetype ", m1, ta, ma"                  \
+        :                                                           \
+        :"m"(VLEN)                                                  \
+    );
 
 // Assembly for arithmetic operations
-#define VOP(op, etype, vetype, eshift)                              \
-    void v##op##_##etype(unsigned int n, const etype* x,           \
+#define VOP(op, etype, vetype, eshift) VOP2(op,etype,vetype,eshift) 
+#define VOP2(op, etype, vetype, eshift)                             \
+    void v##op##_##etype(unsigned int n, const etype* x,            \
                          const etype* y, etype* z)                  \
     {                                                               \
        __asm__ volatile(                                            \
@@ -81,7 +80,7 @@ typedef DS(uint64_t, uint32_t) Suint;
                 "\n\t add %1, %1, t0"                               \
             "\n\t vl" #vetype  " v1, (%2)"                          \
                 "\n\t add %2, %2, t0"                               \
-            "\n\t v" #op " v2, v0, v1"                             \
+            "\n\t v" #op " v2, v0, v1"                              \
             "\n\t vs" #vetype  " v2, (%3)"                          \
                 "\n\t add %3, %3, t0"                               \
                 "\n\t bnez %0, 1b"                                  \
@@ -93,7 +92,8 @@ typedef DS(uint64_t, uint32_t) Suint;
     }
 
 // Assembly for VNEG
-#define VOP_NEG(etype, vetype, eshift)                              \
+#define VOP_NEG(etype, vetype, eshift) VOP_NEG2(etype, vetype, eshift)
+#define VOP_NEG2(etype, vetype, eshift)                              \
     void vfneg_##etype(unsigned int n, etype* x)                    \
     {                                                               \
        __asm__ volatile(                                            \
@@ -114,8 +114,7 @@ typedef DS(uint64_t, uint32_t) Suint;
     }
 
 #define VOP_ALL(op)                                                 \
-    VOP(op,float,e32,2);                                            \
-    VOP(op,double,e64,3);                                           \
+    VOP(op,V,VETYPE,DS(3,2));                                       \
 
 // Generate prototypes
 VOP_ALL(fadd);         
@@ -125,36 +124,42 @@ VOP_ALL(fdiv);
 VOP_ALL(fmacc);      
 VOP_ALL(fmsac);      
 VOP_ALL(fnmsac);      
-VOP_NEG(float,e32,2);                                           
-VOP_NEG(double,e64,3);                                          
+VOP_NEG(V,VETYPE,DS(3,2))                                      
 
 // Basic arithmetic functions
-#define VADD(n,x,y,z,type) (vfadd_ ## type)(n,x,y,z)
-#define VSUB(n,x,y,z,type) (vfsub_ ## type)(n,x,y,z)
-#define VMUL(n,x,y,z,type) (vfmul_ ## type)(n,x,y,z)
-#define VDIV(n,x,y,z,type) (vfdiv_ ## type)(n,x,y,z)
-#define VNEG(n,x,type) (vfneg_ ## type)(n,x)
+#define VADD(n,x,y,z) (vfadd_V)(n,x,y,z)
+#define VSUB(n,x,y,z) (vfsub_V)(n,x,y,z)
+#define VMUL(n,x,y,z) (vfmul_V)(n,x,y,z)
+#define VDIV(n,x,y,z) (vfdiv_V)(n,x,y,z)
+#define VNEG(n,x)     (vfneg_V)(n,x)
 
-// Separate real and imaginary parts
-#define VPARTSPLIT(VL) TYPEUINT(vsub_vx)(TYPEUINT(vand_vx)(TYPEUINT(vid_v)(2*VL), 1, 2*VL), 1, 2*VL)
+// Generates a vector (-1, 0, -1, 0...) of length vl
+#define VPARTSPLIT(partr, vetype) VPARTSPLIT2(partr,vetype)
+#define VPARTSPLIT2(partr, vetype)                                  \
+    __asm__ volatile ( 		                                        \
+	"vid.v v0" 	                                                    \
+    "vand.vi v0, v0, 1"                                             \
+    "vsub.vi v0, v0, 1"                                             \
+    "vs" #vetype ".v v0, (%0)"                                      \
+	: 			                                                    \
+	: "m"(partr)  		                                            \
+    );	
 
 static inline V VDUPL(const V x) {
-    // If we're swapping V/Vuint to ptrs, need to use diff data type for scalars
-    Suint VLEN = 0;
-	VL(VLEN);
-    Vuint partr = VPARTSPLIT(VLEN); // (all 1, 0, all 1, 0, ...)
-    V xl = TYPEINTERPRETU2F(vreinterpret_v)(TYPEUINT(vand_vv)(TYPEINTERPRETF2U(vreinterpret_v)(x), partr, 2*VLEN)); // set odd elements to 0
-    
-    VADD(VLEN,TYPE(vfslide1up_vf)(xl, ZERO, 2*VLEN),xl,xl,V,sizeof(V));
+    Vuint VLEN, partr;
+	VL(VLEN,VETYPE);
+    VPARTSPLIT(partr,VETYPE); // (-1, 0, -1, 0...)
+    V xl = TYPEINTERPRETU2F(vreinterpret_v)(TYPEUINT(vand_vv)(TYPEINTERPRETF2U(vreinterpret_v)(x), partr, 2**VLEN)); // set odd elements to 0
+    VADD(*VLEN,TYPE(vfslide1up_vf)(xl, ZERO, 2**VLEN),xl,xl);
     return xl;
     //return VADD(TYPE(vfslide1up_vf)(xl, ZERO, 2*VLEN), xl);
 }
 
 static inline V VDUPH(const V x) {
-	Suint VLEN = 0;
-	VL(VLEN);
-    Vuint partr = VPARTSPLIT(VLEN); // (all 1, 0, all 1, 0, ...)
-    Vuint parti = TYPEUINT(vnot_v)(partr, 2*VLEN); // (0, all 1, 0, all 1, ...)
+	Vuint VLEN, partr, parti;
+	VL(VLEN,ARCH);
+    VPARTSPLIT(VLEN); // (-1, 0, -1, 0, ...)
+    Vuint parti = TYPEUINT(vnot_v)(partr, 2*VLEN); // (0, -1, 0, -1, ...)
     V xh = TYPEINTERPRETU2F(vreinterpret_v)(TYPEUINT(vand_vv)(TYPEINTERPRETF2U(vreinterpret_v)(x), parti, 2*VLEN)); // set even elements to 0
     return VADD(TYPE(vfslide1down_vf)(xh, ZERO, 2*VLEN), xh);
 }
@@ -162,32 +167,32 @@ static inline V VDUPH(const V x) {
 #define DVK(var, val, vl) V var = TYPE(vfmv_v_f)(val, 2*vl)
 
 static inline V FLIP_RI(const V x) {
-	Suint VLEN = 0;
-	VL(VLEN);
-    Vuint partr = VPARTSPLIT(VLEN); // (all 1, 0, all 1, 0, ...)
+	Vuint VLEN;
+	VL(VLEN,ARCH);
+    Vuint partr = VPARTSPLIT(VLEN); // (-1, 0, -1, 0, ...)
     V xl = TYPEINTERPRETU2F(vreinterpret_v)(TYPEUINT(vand_vv)(TYPEINTERPRETF2U(vreinterpret_v)(x), partr, 2*VLEN)); // set odd elements to 0
-    Vuint parti = TYPEUINT(vnot_v)(partr, 2*VL); // (0, all 1, 0, all 1, ...)
+    Vuint parti = TYPEUINT(vnot_v)(partr, 2*VL); // (0, -1, 0, -1, ...)
     V xh = TYPEINTERPRETU2F(vreinterpret_v)(TYPEUINT(vand_vv)(TYPEINTERPRETF2U(vreinterpret_v)(x), parti, 2*VLEN)); // set even elements to 0
     return VADD(TYPE(vfslide1down_vf)(xh, ZERO, 2*VLEN), TYPE(vfslide1up_vf)(xl, ZERO, 2*VLEN));
 }
 
 static inline V VCONJ(const V x) {
-	Suint VLEN = 0;
-	VL(VLEN);
-    Vuint partr = VPARTSPLIT(VLEN); // (all 1, 0, all 1, 0, ...)
+	Vuint VLEN;
+	VL(VLEN,ARCH);
+    Vuint partr = VPARTSPLIT(VLEN); // (-1, 0, -1, 0, ...)
     V xl = TYPEINTERPRETU2F(vreinterpret_v)(TYPEUINT(vand_vv)(TYPEINTERPRETF2U(vreinterpret_v)(x), partr, 2*VLEN)); // set odd elements to 0
-    Vuint parti = TYPEUINT(vnot_v)(partr, 2*VL); // (0, all 1, 0, all 1, ...)
+    Vuint parti = TYPEUINT(vnot_v)(partr, 2*VL); // (0, -1, 0, -1, ...)
     V xh = TYPEINTERPRETU2F(vreinterpret_v)(TYPEUINT(vand_vv)(TYPEINTERPRETF2U(vreinterpret_v)(x), parti, 2*VLEN)); // set even elements to 0
-    return VADD(xl, VNEG(xh));
+    return VADD(xl, VNEG(VLEN,xh));
 }
 
 static inline V VBYI(V x) {
-	Suint VLEN = 0;
-	VL(VLEN);
-    Vuint partr = VPARTSPLIT(VLEN); // (all 1, 0, all 1, 0, ...)
+	Vuint VLEN;
+	VL(VLEN,ARCH);
+    Vuint partr = VPARTSPLIT(VLEN); // (-1, 0, -1, 0, ...)
     V xl = TYPEINTERPRETU2F(vreinterpret_v)(TYPEUINT(vand_vv)(TYPEINTERPRETF2U(vreinterpret_v)(x), partr, 2*VLEN)); // set odd elements to 0
-    Vuint parti = TYPEUINT(vnot_v)(partr, 2*VLEN); // (0, all 1, 0, all 1, ...)
-    V xh = TYPEINTERPRETU2F(vreinterpret_v)(TYPEUINT(vand_vv)(TYPEINTERPRETF2U(vreinterpret_v)(VNEG(x)), parti, 2*VLEN)); // set elements to negative, then set even elements to 0
+    Vuint parti = TYPEUINT(vnot_v)(partr, 2*VLEN); // (0, -1, 0, -1, ...)
+    V xh = TYPEINTERPRETU2F(vreinterpret_v)(TYPEUINT(vand_vv)(TYPEINTERPRETF2U(vreinterpret_v)(VNEG(VLENx)), parti, 2*VLEN)); // set elements to negative, then set even elements to 0
     return VADD(TYPE(vfslide1down_vf)(xh, ZERO, 2*VLEN), TYPE(vfslide1up_vf)(xl, ZERO, 2*VLEN));
 }
 
@@ -202,8 +207,8 @@ static inline V VBYI(V x) {
 #define VFNMSCONJ(b, c) VSUB(c, VCONJ(b))
 
 static inline V VZMUL(V tx, V sr) {
-    Suint VLEN = 0;
-	VL(VLEN);
+    Vuint VLEN;
+	VL(VLEN,ARCH);
     V tr = VDUPL(tx);
     V ti = VDUPH(tx);
     tr = VMUL(sr, tr);
@@ -212,8 +217,8 @@ static inline V VZMUL(V tx, V sr) {
 }
 
 static inline V VZMULJ(V tx, V sr) {
-    Suint VLEN = 0;
-	VL(VLEN);
+    Vuint VLEN;
+	VL(VLEN,ARCH);
     V tr = VDUPL(tx);
     V ti = VDUPH(tx);
     tr = VMUL(sr, tr);
@@ -230,8 +235,8 @@ static inline V VZMULI(V tx, V sr) {
 }
 
 static inline V VZMULIJ(V tx, V sr) {
-    Suint VLEN = 0;
-	VL(VLEN);
+    Vuint VLEN;
+	VL(VLEN,ARCH);
     V tr = VDUPL(tx);
     V ti = VDUPH(tx);
     ti = VMUL(ti, sr);
