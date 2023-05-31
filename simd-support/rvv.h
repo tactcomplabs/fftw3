@@ -53,14 +53,36 @@
  #endif
 
 #define ZERO DS(0.0,0.0f)
+#include <stdint.h>
+
+typedef struct vfloat64m1_t{
+    uint64_t nElem;
+    double* vals;
+}vfloat64m1_t;
+
+typedef struct vfloat32m1_t{
+    uint32_t nElem;
+    float* vals;
+}vfloat32m1_t;
+
+typedef struct vuint64m1_t{
+    uint64_t nElem;
+    uint64_t* vals;
+}vuint64m1_t;
+
+typedef struct vuint32m1_t{
+    uint32_t nElem;
+    uint32_t* vals;
+}vuint32m1_t;
 
 typedef DS(vfloat64m1_t, vfloat32m1_t) V;
 typedef DS(vuint64m1_t, vuint32m1_t) Vuint;
+typedef DS(uint64_t, uint32_t) Suint;
 
 // Get vector length (# elements) from vsetvli
 #define VL(vetype) VL2(vetype)
 #define VL2(vetype) ({                                              \
-    Vuint res;                                                      \
+    Suint res;                                                      \
     __asm__ volatile(                                               \
         "vsetvli %0, zero, " #vetype ", m1, ta, ma"                 \
         :"=m" (res)                                                 \
@@ -69,12 +91,14 @@ typedef DS(vuint64m1_t, vuint32m1_t) Vuint;
     res;                                                            \
 })
 
+#define NEW_VECTOR(etype, n)
+
 // Assembly for basic arithmetic operations
 #define VOP(op, etype, vetype, eshift) VOP2(op,etype,vetype,eshift) 
 #define VOP2(op, etype, vetype, eshift)                             \
-    etype v##op(Vuint n, const etype* x, const etype* y)            \
+    etype v##op(Suint n, const etype* x, const etype* y)            \
     {                                                               \
-       etype res;                                                   \
+       etype* res = new_#etype(n);                                  \
        __asm__ volatile(                                            \
             "1:"                                                    \
             "\n\t vsetvli t0, %1," #vetype ", ta, ma"               \
@@ -89,8 +113,8 @@ typedef DS(vuint64m1_t, vuint32m1_t) Vuint;
                 "\n\t add %0, %0, t0"                               \
                 "\n\t bnez %1, 1b"                                  \
                 "\n\t ret"                                          \
-            :"=m"(res)                                              \
-            :"r"(n), "m"(x), "m"(y)                                 \
+            :"=m"(res->vals)                                        \
+            :"r"(n), "m"(x->vals), "m"(y->vals)                     \
             :"t0"                                                   \
         );                                                          \
         return res;                                                 \
@@ -99,7 +123,7 @@ typedef DS(vuint64m1_t, vuint32m1_t) Vuint;
 // Assembly for fused arithmetic instructions
 #define VFOP(op, etype, vetype, eshift) VFOP2(op,etype,vetype,eshift) 
 #define VFOP2(op, etype, vetype, eshift)                            \
-    etype v##op(Vuint n, const etype* x, const etype* y, etype* z)  \
+    etype v##op(Suint n, const etype* x, const etype* y, etype* z)  \
     {                                                               \
        __asm__ volatile(                                            \
             "1:"                                                    \
@@ -125,7 +149,7 @@ typedef DS(vuint64m1_t, vuint32m1_t) Vuint;
 // Assembly for unary operations
 #define VOP_UN(op, etype, vetype, eshift) VOP_UN2(op, etype, vetype, eshift)
 #define VOP_UN2(op,etype, vetype, eshift)                               \
-    etype v##op(Vuint n, const etype* x)                                \
+    etype v##op(Suint n, const etype* x)                                \
     {                                                                   \
        etype res;                                                       \
        __asm__ volatile(                                                \
@@ -222,8 +246,7 @@ VOP_UN(vnot,Vuint,VETYPE,ESHIFT)
 
 // a+bi => a+ai for all elements
 static inline V VDUPL(const V x) {
-    Vuint partr;
-	Vuint VLEN = VL(VETYPE);
+	Suint VLEN = VL(VETYPE);
     Vuint partr = VPARTSPLIT(VETYPE); // (-1, 0, -1, 0...)
     V xl = UTF(VAND(VLEN,FTU(x), partr)); // Mask off odd indices
     return VADD(VLEN,SLIDEUP1(xl),xl);
@@ -231,7 +254,7 @@ static inline V VDUPL(const V x) {
 
 // a+bi => b+bi for all elements
 static inline V VDUPH(const V x) {
-	Vuint VLEN = VL(VETYPE);
+	Suint VLEN = VL(VETYPE);
     Vuint partr = VPARTSPLIT(VETYPE); // (-1, 0, -1, 0, ...)
     Vuint parti = VNOT(VLEN,partr); // (0, -1, 0, -1, ...)
     V xh = UTF(VAND(VLEN,FTU(x),parti)); // Mask off even indices
@@ -242,7 +265,7 @@ static inline V VDUPH(const V x) {
 
 // a+bi => b+ai for all elements
 static inline V FLIP_RI(const V x) {
-	Vuint VLEN = VL(VETYPE);
+	Suint VLEN = VL(VETYPE);
     Vuint partr = VPARTSPLIT(VETYPE); // (-1, 0, -1, 0, ...)
     V xl = UTF(VAND(VLEN,FTU(x),partr));
     Vuint parti = VNOT(VLEN, partr); // (0, -1, 0, -1, ...)
@@ -252,7 +275,7 @@ static inline V FLIP_RI(const V x) {
 
 // a+bi => a-bi for all elements
 static inline V VCONJ(const V x) {
-	Vuint VLEN = VL(VETYPE);
+	Suint VLEN = VL(VETYPE);
     Vuint partr = VPARTSPLIT(VETYPE); // (-1, 0, -1, 0, ...)
     V xl = UTF(VAND(VLEN,FTU(x),partr));
     Vuint parti = VNOT(VLEN, partr); // (0, -1, 0, -1, ...)
@@ -262,7 +285,7 @@ static inline V VCONJ(const V x) {
 
 // Same as FLIP_RI, argument isn't const qualified
 static inline V VBYI(V x) {
-	Vuint VLEN = VL(VETYPE);
+	Suint VLEN = VL(VETYPE);
     Vuint partr = VPARTSPLIT(VETYPE); // (-1, 0, -1, 0, ...)
     V xl = UTF(VAND(VLEN,FTU(x),partr));
     Vuint parti = VNOT(VLEN, partr); // (0, -1, 0, -1, ...)
@@ -278,7 +301,7 @@ static inline V VBYI(V x) {
 #define VFNMSCONJ(b, c) VSUB(c, VCONJ(b))
 
 static inline V VZMUL(V tx, V sr) {
-	Vuint VLEN = VL(VETYPE);
+	Suint VLEN = VL(VETYPE);
     V tr = VDUPL(tx);
     V ti = VDUPH(tx);
     tr = VMUL(VLEN, sr, tr);
@@ -287,7 +310,7 @@ static inline V VZMUL(V tx, V sr) {
 }
 
 static inline V VZMULJ(V tx, V sr) {
-	Vuint VLEN = VL(VETYPE);
+	Suint VLEN = VL(VETYPE);
     V tr = VDUPL(tx);
     V ti = VDUPH(tx);
     tr = VMUL(VLEN, sr, tr);
@@ -296,7 +319,7 @@ static inline V VZMULJ(V tx, V sr) {
 }
 
 static inline V VZMULI(V tx, V sr) {
-    Vuint VLEN = VL(VETYPE);
+    Suint VLEN = VL(VETYPE);
     V tr = VDUPL(tx);
     V ti = VDUPH(tx);
     ti = VMUL(VLEN, ti, sr);
@@ -305,7 +328,7 @@ static inline V VZMULI(V tx, V sr) {
 }
 
 static inline V VZMULIJ(V tx, V sr) {
-	Vuint VLEN = VL(VETYPE);
+	Suint VLEN = VL(VETYPE);
     V tr = VDUPL(tx);
     V ti = VDUPH(tx);
     ti = VMUL(VLEN, ti, sr);
