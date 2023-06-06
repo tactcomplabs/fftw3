@@ -73,6 +73,7 @@ typedef struct Vuint{
     res;                                                                    \
 })
 
+// Constructor/destructor
 static inline void newVector(const Suint n, void* vec) {
     V* tmp = (V*)vec;
     tmp->nElem = n;
@@ -173,38 +174,35 @@ VFOP(vfnmsac, V, SEW, ESHIFT)
 VOP_UN(vfneg, V, SEW, ESHIFT)                                      
 VOP_UN(vnot, Vuint, SEW, ESHIFT)                                      
 
-// Basic arithmetic functions
+// Macro wrappers for arithmetic functions
 #define VADD(n,x,y,z)     (vvfadd)(n,x,y,z)
 #define VSUB(n,x,y,z)     (vvfsub)(n,x,y,z)
 #define VMUL(n,x,y,z)     (vvfmul)(n,x,y,z)
 #define VDIV(n,x,y,z)     (vvfdiv)(n,x,y,z)
 #define VNEG(n,x,y)       (vvfneg)(n,x,y)
 
-// Basic logical functions
+// Macro wrappers for logical functions
 #define VAND(n,x,y,z)     (vvand)(n,x,y,z)
 #define VOR(n,x,y,z)      (vvand)(n,x,y,z)
 #define VNOT(n,x,y)       (vvnot)(n,x,y)
 
-// Fused arithmetic functions
+// Macro wrappers for fused arithmetic functions
 #define VFMA(n,a,b,c)     (vvfmacc)(n,c,a,b)
 #define VFMS(n,a,b,c)     (vvfmsac)(n,c,a,b)
 #define VFNMS(n,a,b,c)    (vvfnmsac)(n,c,a,b)
 
 // Generates a vector (-1, 0, -1, 0...) of length vl
 // FIXME: Slated for removal if SIMD approach is abandoned
-#define VPARTSPLIT(VLEN, SEW) VPARTSPLIT2(VLEN, SEW)
-#define VPARTSPLIT2(VLEN, SEW) ({                                   \
-    Vuint res;                                                      \
-    newVector(VLEN, &res);                                          \
+#define VPARTSPLIT(VLEN, SEW, dest) VPARTSPLIT2(VLEN, SEW, dest)
+#define VPARTSPLIT2(VLEN, SEW, dest) ({                             \
     __asm__ volatile ( 		                                        \
 	    "vid.v v0" 	                                                \
         "vand.vi v0, v0, 1"                                         \
         "vsub.vi v0, v0, 1"                                         \
         "vse" #SEW ".v v0, (%0)"                                    \
-	    :"=m"(res.vals)   	                                        \
+	    :"=m"(dest->vals)   	                                    \
 	    :            		                                        \
     );                                                              \
-    res;                                                            \
 })
 
 static inline void slide1Up(const Suint n, const V* src, V* dest) {
@@ -227,11 +225,13 @@ static inline void slide1Down(const Suint n, const V* src, V* dest) {
 static inline V VDUPL(const V* x) {
 	const Suint VLEN = VL(SEW);
     V xl, xs, res;
+    Vuint partr;
     newVector(VLEN, &xl);
     newVector(VLEN, &xs);
     newVector(VLEN, &res);
+    newVector(VLEN, &partr);
 
-    Vuint partr = VPARTSPLIT(VLEN, SEW); // (-1, 0, -1, 0...)
+    VPARTSPLIT(VLEN, SEW, &partr); // (-1, 0, -1, 0...)
     VAND(VLEN, x, &partr, &xl); // Mask off odd indices
     slide1Up(VLEN, &xl, &xs);
     VADD(VLEN, &xs, &xl, &res);
@@ -250,9 +250,10 @@ static inline V VDUPH(const V* x) {
     newVector(VLEN, &xh);
     newVector(VLEN, &xs);
     newVector(VLEN, &res);
+    newVector(VLEN, &partr);
     newVector(VLEN, &parti);
 
-    partr = VPARTSPLIT(VLEN, SEW); // (-1, 0, -1, 0, ...)
+    VPARTSPLIT(VLEN, SEW, &partr); // (-1, 0, -1, 0, ...)
     VNOT(VLEN, &partr, &parti); // (0, -1, 0, -1, ...)
     VAND(VLEN, x, &parti, &xh); // Mask off even indices
     slide1Down(VLEN, &xh, &xs);
@@ -274,9 +275,10 @@ static inline V FLIP_RI(const V* x) {
     newVector(VLEN, &xs);
     newVector(VLEN, &xs2);
     newVector(VLEN, &res);
+    newVector(VLEN, &partr);
     newVector(VLEN, &parti);
 
-    partr = VPARTSPLIT(VLEN,SEW); // (-1, 0, -1, 0, ...)
+    VPARTSPLIT(VLEN, SEW, &partr); // (-1, 0, -1, 0, ...)
     VAND(VLEN, x, &partr, &xl);
     VNOT(VLEN, &partr, &parti); // (0, -1, 0, -1, ...)
     VAND(VLEN, x, &parti, &xh); // set even elements to 0
@@ -300,9 +302,10 @@ static inline V VCONJ(const V* x) {
     Vuint partr, parti;
     newVector(VLEN, &xh);
     newVector(VLEN, &res);
+    newVector(VLEN, &partr);
     newVector(VLEN, &parti);
 
-    partr = VPARTSPLIT(VLEN,SEW); // (-1, 0, -1, 0, ...)
+    VPARTSPLIT(VLEN, SEW, &partr); // (-1, 0, -1, 0, ...)
     VAND(VLEN, x, &partr, &xl);
     VNOT(VLEN, &partr, &parti); // (0, -1, 0, -1, ...)
     VAND(VLEN, x, &parti, &xh); // set even elements to 0
@@ -323,9 +326,10 @@ static inline V VBYI(V* x) {
     Vuint partr, parti;
     newVector(VLEN, &xh);
     newVector(VLEN, &res);
+    newVector(VLEN, &partr);
     newVector(VLEN, &parti);
 
-    partr = VPARTSPLIT(VLEN,SEW); // (-1, 0, -1, 0, ...)
+    VPARTSPLIT(VLEN, SEW, &partr); // (-1, 0, -1, 0, ...)
     VAND(VLEN, x, &partr, &xl); // set odd elements to 0
     VNOT(VLEN, &partr, &parti); // (0, -1, 0, -1, ...)
     VAND(VLEN, x, &parti, &xh); // set even elements to 0
