@@ -209,7 +209,7 @@ VOP_UN(vnot, Vuint, SEW, ESHIFT)
 
 static inline void slide1Up(const Suint n, const V* src, V* dest) {
     __asm__ volatile(                                               \
-        "vfslide1Up.vf %0, %1, zero \n\t"                           \
+        "vfslide1up.vf %0, %1, zero \n\t"                           \
         :"=m"(dest->vals)                                           \
         :"m"(src->vals)                                             \
     );       
@@ -217,7 +217,7 @@ static inline void slide1Up(const Suint n, const V* src, V* dest) {
 
 static inline void slide1Down(const Suint n, const V* src, V* dest) {
     __asm__ volatile(                                               \
-        "vfslide1Down.vf %0, %1, zero \n\t"                         \
+        "vfslide1down.vf %0, %1, zero \n\t"                         \
         :"=m"(dest->vals)                                           \
         :"m"(src->vals)                                             \
     );       
