@@ -203,6 +203,10 @@ VOP_UN(vnot, Vuint)
     );                                                              \
 })
 
+// Shifts elements right one in vector
+// FIXME: Needs nontrivial strip mining approach
+// Must track element erased by slide and place it at front of next vector
+// Likely to be removed in favor of alternative approach
 static inline void slide1Up(const Suint n, const V* src, V* dest) {
     __asm__ volatile(                                               \
         "vfslide1up.vf %0, %1, zero \n\t"                           \
@@ -308,6 +312,8 @@ static inline V VCONJ(const V* x) {
     VNOT(VLEN, &partr, &parti); // (0, -1, 0, -1, ...)
     VAND(VLEN, x, &parti, &xh); // set even elements to 0
     VNEG(VLEN, &xh, &xh);
+    slide1Down(VLEN, &xh, &xs);
+    slide1Up(VLEN, &xl, &xs2);
     VADD(VLEN, &xl, &xh, &res);
 
     freeVector(&partr);
@@ -317,7 +323,7 @@ static inline V VCONJ(const V* x) {
     return res;
 }
 
-// Same as FLIP_RI, argument isn't const qualified
+// a+bi => -b+ai for all elements
 static inline V VBYI(V* x) {
 	const Suint VLEN = VL();
     V xh, xl, res;
