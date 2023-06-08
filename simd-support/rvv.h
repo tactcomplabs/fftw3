@@ -26,248 +26,340 @@
  *
  */
 
-#ifndef defined(__riscv_xlen) && __riscv_xlen == 64
+#ifndef __riscv_xlen && __riscv_xlen == 64
 
 #if defined(FFTW_LDOUBLE) || defined(FFTW_QUAD)
 #error "RISC-V V vector instructions only works in single or double precision"
 #endif
 
 #ifdef FFTW_SINGLE
- #  define DS(d,s) s /* single-precision option */
- #  define TYPE(name) __riscv_ ## name ## _f32m1
- #  define TYPEUINT(name) __riscv_ ## name ## _u32m1
- #  define TYPEINTERPRETF2U(name) __riscv_ ## name ## _f32m1_u32m1
- #  define TYPEINTERPRETU2F(name) __riscv_ ## name ## _u32m1_f32m1
- #  define TYPEMEM(name) __riscv_ ## name ## e32_v_f32m1
- #  define VETYPE e32
+ #  define DS(d, s) s /* single-precision option */
+ #  define SEW 32
  #  define ESHIFT 2
- #else
- #  define DS(d,s) d /* double-precision option */
- #  define TYPE(name) __riscv_ ## name ## _f64m1
- #  define TYPEUINT(name) __riscv_ ## name ## _u64m1
- #  define TYPEINTERPRETF2U(name) __riscv_ ## name ## _f64m1_u64m1
- #  define TYPEINTERPRETU2F(name) __riscv_ ## name ## _u64m1_f64m1
- #  define TYPEMEM(name) __riscv_ ## name ## e64_v_f64m1
- #  define VETYPE e64
+#else
+ #  define DS(d, s) d /* double-precision option */
+ #  define SEW 64
  #  define ESHIFT 3
- #endif
+#endif
 
 #define ZERO DS(0.0,0.0f)
+#define str(x) xstr(x)
+#define xstr(x) #x
 
-typedef DS(vfloat64m1_t, vfloat32m1_t) V;
-typedef DS(vuint64m1_t, vuint32m1_t) Vuint;
+#include <stdint.h>
+#include <stdlib.h>
+
+// Scalar types
+typedef DS(uint64_t, uint32_t) Suint;
+typedef DS(double, float) Sfloat;
+
+// Vector types
+typedef struct V{
+    Suint nElem;
+    Sfloat* vals;
+}V;
+
+typedef struct Vuint{
+    Suint nElem;
+    Suint* vals;
+}Vuint;
 
 // Get vector length (# elements) from vsetvli
-#define VL(vetype) VL2(vetype)
-#define VL2(vetype) ({                                              \
-    Vuint res;                                                      \
-    __asm__ volatile(                                               \
-        "vsetvli %0, zero, " #vetype ", m1, ta, ma"                 \
-        :"=m" (res)                                                 \
-        :                                                           \
-    );                                                              \
-    res;                                                            \
+#define VL() ({                                                             \
+    Suint res;                                                              \
+    __asm__ volatile(                                                       \
+        "vsetvli %0, zero, e" str(SEW) ", m1, ta, ma"                       \
+        :"=m" (res)                                                         \
+        :                                                                   \
+    );                                                                      \
+    res;                                                                    \
 })
 
+// Constructor/destructor
+static inline void newVector(const Suint n, void* vec) {
+    V* tmp = (V*)vec;
+    tmp->nElem = n;
+    tmp->vals = calloc(n, SEW);
+}
+
+static inline void freeVector(void* vec) {
+    V* tmp = (V*)vec;
+    free(tmp->vals);
+}
+
 // Assembly for basic arithmetic operations
-#define VOP(op, etype, vetype, eshift) VOP2(op,etype,vetype,eshift) 
-#define VOP2(op, etype, vetype, eshift)                             \
-    etype v##op(Vuint n, const etype* x, const etype* y)            \
-    {                                                               \
-       etype res;                                                   \
-       __asm__ volatile(                                            \
-            "1:"                                                    \
-            "\n\t vsetvli t0, %1," #vetype ", ta, ma"               \
-            "\n\t vl" #vetype  " v0, (%2)"                          \
-                "\n\t sub %1, %1, t0"                               \
-                "\n\t slli t0, t0, " #eshift                        \
-                "\n\t add %2, %2, t0"                               \
-            "\n\t vl" #vetype  " v1, (%3)"                          \
-                "\n\t add %3, %3, t0"                               \
-            "\n\t" #op " v2, v0, v1"                                \
-            "\n\t vs" #vetype  " v2, (%0)"                          \
-                "\n\t add %0, %0, t0"                               \
-                "\n\t bnez %1, 1b"                                  \
-                "\n\t ret"                                          \
-            :"=m"(res)                                              \
-            :"r"(n), "m"(x), "m"(y)                                 \
-            :"t0"                                                   \
-        );                                                          \
-        return res;                                                 \
+#define VOP(op, etype)                                                      \
+    void v##op(const Suint n, const etype* x, const etype* y, etype* z)     \
+    {                                                                       \
+       __asm__ volatile(                                                    \
+            "1:"                                                            \
+            "\n\t vsetvli t0, %1, e" str(SEW) ", ta, ma"                    \
+            "\n\t vle" str(SEW)  " v0, (%2)"                                \
+                "\n\t sub %1, %1, t0"                                       \
+                "\n\t slli t0, t0, " str(eshift)                            \
+                "\n\t add %2, %2, t0"                                       \
+            "\n\t vle" str(SEW)  " v1, (%3)"                                \
+                "\n\t add %3, %3, t0"                                       \
+            "\n\t" str(op) " v2, v0, v1"                                    \
+            "\n\t vse" str(SEW)  " v2, (%0)"                                \
+                "\n\t add %0, %0, t0"                                       \
+                "\n\t bnez %1, 1b"                                          \
+                "\n\t ret"                                                  \
+            :"=m"(z->vals)                                                  \
+            :"r"(n), "m"(x->vals), "m"(y->vals)                             \
+            :"t0"                                                           \
+        );                                                                  \
     }
 
 // Assembly for fused arithmetic instructions
-#define VFOP(op, etype, vetype, eshift) VFOP2(op,etype,vetype,eshift) 
-#define VFOP2(op, etype, vetype, eshift)                            \
-    etype v##op(Vuint n, const etype* x, const etype* y, etype* z)  \
-    {                                                               \
-       __asm__ volatile(                                            \
-            "1:"                                                    \
-            "\n\t vsetvli t0, %1," #vetype ", ta, ma"               \
-            "\n\t vl" #vetype  " v0, (%2)"                          \
-                "\n\t sub %1, %1, t0"                               \
-                "\n\t slli t0, t0, " #eshift                        \
-                "\n\t add %2, %2, t0"                               \
-            "\n\t vl" #vetype  " v1, (%3)"                          \
-                "\n\t add %3, %3, t0"                               \
-            "\n\t" #op " v2, v0, v1"                                \
-            "\n\t vs" #vetype  " v2, (%0)"                          \
-                "\n\t add %0, %0, t0"                               \
-                "\n\t bnez %1, 1b"                                  \
-                "\n\t ret"                                          \
-            :"=m"(z)                                                \
-            :"r"(n), "m"(x), "m"(y)                                 \
-            :"t0"                                                   \
-        );                                                          \
-        return z;                                                   \
+#define VFOP(op, etype)                                                     \
+    void v##op(Suint n, const etype* x, const etype* y, etype* z)           \
+    {                                                                       \
+       __asm__ volatile(                                                    \
+            "1:"                                                            \
+            "\n\t vsetvli t0, %1, e" str(SEW) ", ta, ma"                    \
+            "\n\t vle" str(SEW)  " v0, (%2)"                                \
+                "\n\t sub %1, %1, t0"                                       \
+                "\n\t slli t0, t0, " str(eshift)                            \
+                "\n\t add %2, %2, t0"                                       \
+            "\n\t vle" str(SEW)  " v1, (%3)"                                \
+                "\n\t add %3, %3, t0"                                       \
+            "\n\t" str(op) " v2, v0, v1"                                    \
+            "\n\t vs" str(SEW)  " v2, (%0)"                                 \
+                "\n\t add %0, %0, t0"                                       \
+                "\n\t bnez %1, 1b"                                          \
+                "\n\t ret"                                                  \
+            :"=m"(z->vals)                                                  \
+            :"r"(n), "m"(x->vals), "m"(y->vals)                             \
+            :"t0"                                                           \
+        );                                                                  \
     }                                                                      
 
 // Assembly for unary operations
-#define VOP_UN(op, etype, vetype, eshift) VOP_UN2(op, etype, vetype, eshift)
-#define VOP_UN2(op,etype, vetype, eshift)                               \
-    etype v##op(Vuint n, const etype* x)                                \
-    {                                                                   \
-       etype res;                                                       \
-       __asm__ volatile(                                                \
-            "1:"                                                        \
-            "\n\t vsetvli t0, %1," #vetype ", ta, ma"                   \
-            "\n\t vl" #vetype  " v0, (%2)"                              \
-                "\n\t sub %1, %1, t0"                                   \
-                "\n\t slli t0, t0, " #eshift                            \
-                "\n\t add %2, %2, t0"                                   \
-            "\n\t" #op " v1, v0"                                        \
-            "\n\t vs" #vetype  " v1, (%0)"                              \
-                "\n\t add %2, %2, t0"                                   \
-            "\n\t bnez %1, 1b"                                          \
-            "\n\t ret"                                                  \
-            :"=m"(res)                                                  \
-            :"r"(n), "m"(x)                                             \
-            :"t0"                                                       \
-            );                                                          \
-        return res;                                                     \
+#define VOP_UN(op, etype)                                                   \
+    void v##op(const Suint n, const etype* x, etype* y)                     \
+    {                                                                       \
+       __asm__ volatile(                                                    \
+            "1:"                                                            \
+            "\n\t vsetvli t0, %1, e" str(SEW) ", ta, ma"                    \
+            "\n\t vle" str(SEW)  " v0, (%2)"                                \
+                "\n\t sub %1, %1, t0"                                       \
+                "\n\t slli t0, t0, " str(eshift)                            \
+                "\n\t add %2, %2, t0"                                       \
+            "\n\t" str(op) " v1, v0"                                        \
+            "\n\t vse" str(SEW)  " v1, (%0)"                                \
+                "\n\t add %2, %2, t0"                                       \
+            "\n\t bnez %1, 1b"                                              \
+            "\n\t ret"                                                      \
+            :"=m"(y->vals)                                                  \
+            :"r"(n), "m"(x->vals)                                           \
+            :"t0"                                                           \
+            );                                                              \
     }
 
 // Generate prototypes
-VOP(vfadd, V, VETYPE, ESHIFT)         
-VOP(vfsub, V, VETYPE, ESHIFT)         
-VOP(vfmul, V, VETYPE, ESHIFT)          
-VOP(vfdiv, V, VETYPE, ESHIFT)
+VOP(vfadd, V)         
+VOP(vfsub, V)         
+VOP(vfmul, V)          
+VOP(vfdiv, V)
 
-VOP(vand, Vuint, VETYPE, ESHIFT)
-VOP(vor, Vuint, VETYPE, ESHIFT)
+VOP(vand, Vuint)
+VOP(vor, Vuint)
 
-VFOP(vfmacc, V, VETYPE, ESHIFT)
-VFOP(vfmsac, V, VETYPE, ESHIFT)
-VFOP(vfnmsac, V, VETYPE, ESHIFT)
+VFOP(vfmacc, V)
+VFOP(vfmsac, V)
+VFOP(vfnmsac, V)
 
-VOP_UN(vfneg,V,VETYPE,ESHIFT)                                      
-VOP_UN(vnot,Vuint,VETYPE,ESHIFT)                                      
+VOP_UN(vfneg, V)                                      
+VOP_UN(vnot, Vuint)                                      
 
-// Basic arithmetic functions
-#define VADD(n,x,y)     (vvfadd)(n,x,y)
-#define VSUB(n,x,y)     (vvfsub)(n,x,y)
-#define VMUL(n,x,y)     (vvfmul)(n,x,y)
-#define VDIV(n,x,y)     (vvfdiv)(n,x,y)
-#define VNEG(n,x)       (vvfneg)(n,x)
+// Macro wrappers for arithmetic functions
+#define VADD(n, x, y, z)     (vvfadd)(n, x, y, z)
+#define VSUB(n, x, y, z)     (vvfsub)(n, x, y, z)
+#define VMUL(n, x, y, z)     (vvfmul)(n, x, y, z)
+#define VDIV(n, x, y, z)     (vvfdiv)(n, x, y, z)
+#define VNEG(n, x, y)        (vvfneg)(n, x, y)
 
-// Basic logical functions
-#define VAND(n,x,y)     (vvand)(n,x,y)
-#define VOR(n,x,y)      (vvand)(n,x,y)
-#define VNOT(n,x)       (vvnot)(n,x)
+// Macro wrappers for logical functions
+#define VAND(n, x, y, z)     (vvand)(n, x, y, z)
+#define VOR(n, x, y, z)      (vvand)(n, x, y, z)
+#define VNOT(n, x, y)        (vvnot)(n, x, y)
 
-// Fused arithmetic functions
-#define VFMA(n,a,b,c) (vvfmacc)(n,c,a,b)
-#define VFMS(n,a,b,c) (vvfmsac)(n,c,a,b)
-#define VFNMS(n,a,b,c) (vvfnmsac)(n,c,a,b)
+// Macro wrappers for fused arithmetic functions
+#define VFMA(n, a, b, c)     (vvfmacc)(n, c, a, b)
+#define VFMS(n, a, b, c)     (vvfmsac)(n, c, a, b)
+#define VFNMS(n, a, b, c)    (vvfnmsac)(n, c, a, b)
 
 // Generates a vector (-1, 0, -1, 0...) of length vl
-#define VPARTSPLIT(vetype) VPARTSPLIT2(vetype)
-#define VPARTSPLIT2(vetype) ({                                      \
-    Vuint res;                                                      \
+// FIXME: Slated for removal if SIMD approach is abandoned
+static inline void vpartsplit(const Suint n, Vuint* dest) {
     __asm__ volatile ( 		                                        \
+        "1:"                                                        \
+        "\n\t vsetvli t0, %1, e" str(SEW) ", ta, ma"                \
+            "\n\t sub %1, %1, t0"                                   \
+            "\n\t slli t0, t0, " str(eshift)                        \
 	    "vid.v v0" 	                                                \
         "vand.vi v0, v0, 1"                                         \
         "vsub.vi v0, v0, 1"                                         \
-        "vs" #vetype ".v v0, (%0)"                                  \
-	    :"=m"(partr) 	                                            \
-	    :            		                                        \
+        "\n\t vs" str(SEW)  " v0, (%0)"                             \
+            "\n\t add %0, %0, t0"                                   \
+            "\n\t bnez %1, 1b"                                      \
+            "\n\t ret"                                              \
+	    :"=m"(dest->vals)   	                                    \
+	    :"r"(n)            		                                    \
+        :"t0"                                                       \
     );                                                              \
-    res;                                                            \
-})
+}
 
-// Type punning (may need replacing)
-// Rely on function signature to reinterpret pointers?
-#define FTU(x) (*(Vuint*)&x)
-#define UTF(x) (*(V*)&x)
-
-#define SLIDEUP1(x) ({                                              \
-    V res;                                                          \
+// Shifts elements right one in vector
+// FIXME: Needs nontrivial strip mining approach
+// Must track element erased by slide and place it at front of next vector
+// Likely to be removed in favor of alternative approach
+static inline void slide1Up(const Suint n, const V* src, V* dest) {
     __asm__ volatile(                                               \
         "vfslide1up.vf %0, %1, zero \n\t"                           \
-        :"=m"(res)                                                  \
-        :"m"(x)                                                     \
-    );                                                              \   
-    res;                                                            \
-})
+        :"=m"(dest->vals)                                           \
+        :"m"(src->vals)                                             \
+    );       
+}
 
-#define SLIDEDOWN1(x) ({                                            \
-    V res;                                                          \
+static inline void slide1Down(const Suint n, const V* src, V* dest) {
     __asm__ volatile(                                               \
         "vfslide1down.vf %0, %1, zero \n\t"                         \
-        :"=m"(res)                                                  \
-        :"m"(x)                                                     \
-    );                                                              \   
-    res;                                                            \
-})
+        :"=m"(dest->vals)                                           \
+        :"m"(src->vals)                                             \
+    );       
+}
 
 // a+bi => a+ai for all elements
-static inline V VDUPL(const V x) {
+static inline V VDUPL(const V* x) {
+	const Suint VLEN = VL();
+    V xl, xls, res;
     Vuint partr;
-	Vuint VLEN = VL(VETYPE);
-    Vuint partr = VPARTSPLIT(VETYPE); // (-1, 0, -1, 0...)
-    V xl = UTF(VAND(VLEN,FTU(x), partr)); // Mask off odd indices
-    return VADD(VLEN,SLIDEUP1(xl),xl);
+    newVector(VLEN, &xl);
+    newVector(VLEN, &xls);
+    newVector(VLEN, &partr);
+    newVector(VLEN, &res);
+
+    vpartsplit(VLEN, &partr);         // (-1, 0, -1, 0...)
+    VAND(VLEN, x, &partr, &xl); // Mask off even indices
+    slide1Up(VLEN, &xl, &xls);
+    VADD(VLEN, &xls, &xl, &res);
+
+    freeVector(&xl);
+    freeVector(&xls);
+    freeVector(&partr);
+    return res;
 }
 
 // a+bi => b+bi for all elements
-static inline V VDUPH(const V x) {
-	Vuint VLEN = VL(VETYPE);
-    Vuint partr = VPARTSPLIT(VETYPE); // (-1, 0, -1, 0, ...)
-    Vuint parti = VNOT(VLEN,partr); // (0, -1, 0, -1, ...)
-    V xh = UTF(VAND(VLEN,FTU(x),parti)); // Mask off even indices
-    return VADD(VLEN,SLIDEDOWN1(xh),xh);
+static inline V VDUPH(const V* x) {
+	const Suint VLEN = VL();
+    V xh, xhs, res;
+    Vuint partr, parti;
+    newVector(VLEN, &xh);
+    newVector(VLEN, &xhs);
+    newVector(VLEN, &partr);
+    newVector(VLEN, &parti);
+    newVector(VLEN, &res);
+
+    vpartsplit(VLEN, &partr);         // (-1, 0, -1, 0, ...)
+    VNOT(VLEN, &partr, &parti); // (0, -1, 0, -1, ...)
+    VAND(VLEN, x, &parti, &xh); // Mask off odd indices
+    slide1Down(VLEN, &xh, &xhs);
+    VADD(VLEN, &xhs, &xh, &res);
+
+    freeVector(&xh);
+    freeVector(&xhs);
+    freeVector(&partr);
+    freeVector(&parti);
+    return res;
 }
 
-#define DVK(var, val, vl) V var = TYPE(vfmv_v_f)(val, 2*vl)
-
 // a+bi => b+ai for all elements
-static inline V FLIP_RI(const V x) {
-	Vuint VLEN = VL(VETYPE);
-    Vuint partr = VPARTSPLIT(VETYPE); // (-1, 0, -1, 0, ...)
-    V xl = UTF(VAND(VLEN,FTU(x),partr));
-    Vuint parti = VNOT(VLEN, partr); // (0, -1, 0, -1, ...)
-    V xh = UTF(VAND(VLEN,FTU(x), parti)); // set even elements to 0
-    return VADD(VLEN, SLIDEDOWN1(xh), SLIDEUP1(xl));
+static inline V FLIP_RI(const V* x) {
+	const Suint VLEN = VL();
+    V xh, xl, xhs, xls, res;
+    Vuint partr, parti;
+    newVector(VLEN, &xh);
+    newVector(VLEN, &xl);
+    newVector(VLEN, &xhs);
+    newVector(VLEN, &xls);
+    newVector(VLEN, &partr);
+    newVector(VLEN, &parti);
+    newVector(VLEN, &res);
+
+    vpartsplit(VLEN, &partr);         // (-1, 0, -1, 0, ...)
+    VAND(VLEN, x, &partr, &xl);
+    VNOT(VLEN, &partr, &parti); // (0, -1, 0, -1, ...)
+    VAND(VLEN, x, &parti, &xh); // set even elements to 0
+    slide1Down(VLEN, &xh, &xhs);
+    slide1Up(VLEN, &xl, &xls);
+    VADD(VLEN, &xhs, &xls, &res);
+
+    freeVector(&xh);    
+    freeVector(&xl);
+    freeVector(&xhs);    
+    freeVector(&xls);    
+    freeVector(&partr);
+    freeVector(&parti);
+    return res;
 }
 
 // a+bi => a-bi for all elements
-static inline V VCONJ(const V x) {
-	Vuint VLEN = VL(VETYPE);
-    Vuint partr = VPARTSPLIT(VETYPE); // (-1, 0, -1, 0, ...)
-    V xl = UTF(VAND(VLEN,FTU(x),partr));
-    Vuint parti = VNOT(VLEN, partr); // (0, -1, 0, -1, ...)
-    V xh = UTF(VAND(VLEN,FTU(x), parti)); // set even elements to 0
-    return VADD(VLEN, xl, VNEG(VLEN,xh));
+static inline V VCONJ(const V* x) {
+	const Suint VLEN = VL();
+    V xh, xl, res;
+    Vuint partr, parti;
+    newVector(VLEN, &xh);
+    newVector(VLEN, &xl);
+    newVector(VLEN, &partr);
+    newVector(VLEN, &parti);
+    newVector(VLEN, &res);
+
+    vpartsplit(VLEN, &partr);         // (-1, 0, -1, 0, ...)
+    VAND(VLEN, x, &partr, &xl);
+    VNOT(VLEN, &partr, &parti); // (0, -1, 0, -1, ...)
+    VAND(VLEN, x, &parti, &xh); // set even elements to 0
+    VNEG(VLEN, &xh, &xh);       // take conjugate
+    VADD(VLEN, &xh, &xl, &res);
+
+    freeVector(&xh);    
+    freeVector(&xl);
+    freeVector(&partr);
+    freeVector(&parti);
+    return res;
 }
 
-// Same as FLIP_RI, argument isn't const qualified
-static inline V VBYI(V x) {
-	Vuint VLEN = VL(VETYPE);
-    Vuint partr = VPARTSPLIT(VETYPE); // (-1, 0, -1, 0, ...)
-    V xl = UTF(VAND(VLEN,FTU(x),partr));
-    Vuint parti = VNOT(VLEN, partr); // (0, -1, 0, -1, ...)
-    V xh = UTF(VAND(VLEN,FTU(x), parti)); // set even elements to 0
-    return VADD(VLEN, SLIDEDOWN1(xh), SLIDEUP1(xl));
+// a+bi => -b+ai for all elements
+static inline V VBYI(V* x) {
+	const Suint VLEN = VL();
+    V xh, xl, xls, xhs, res;
+    Vuint partr, parti;
+    newVector(VLEN, &xh);
+    newVector(VLEN, &xl);
+    newVector(VLEN, &xls);
+    newVector(VLEN, &xhs);
+    newVector(VLEN, &partr);
+    newVector(VLEN, &parti);
+    newVector(VLEN, &res);
+
+    vpartsplit(VLEN, &partr);         // (-1, 0, -1, 0, ...)
+    VAND(VLEN, x, &partr, &xl); // set odd elements to 0
+    VNOT(VLEN, &partr, &parti); // (0, -1, 0, -1, ...)
+    VNEG(VLEN, x, x);           // take conjugate
+    VAND(VLEN, x, &parti, &xh); // set even elements to 0
+    slide1Down(VLEN, &xh, &xhs);
+    slide1Up(VLEN, &xl, &xls);
+    VADD(VLEN, &xls, &xhs, &res);
+
+    newVector(VLEN, &xh);
+    newVector(VLEN, &xl);
+    newVector(VLEN, &xls);
+    newVector(VLEN, &xhs);
+    newVector(VLEN, &partr);
+    newVector(VLEN, &parti);
+    return res;
 }
 
 // Hybrid instructions
@@ -277,40 +369,84 @@ static inline V VBYI(V x) {
 #define VFMSCONJ(b, c) VSUB(VCONJ(b), c)
 #define VFNMSCONJ(b, c) VSUB(c, VCONJ(b))
 
-static inline V VZMUL(V tx, V sr) {
-	Vuint VLEN = VL(VETYPE);
-    V tr = VDUPL(tx);
-    V ti = VDUPH(tx);
-    tr = VMUL(VLEN, sr, tr);
-    sr = VBYI(sr);
-    return VFMA(VLEN, ti, sr, tr);
+static inline V VZMUL(V* tx, V* sr) {
+	const Suint VLEN = VL();
+    V tr, ti, srs, res;
+    newVector(VLEN, &tr);
+    newVector(VLEN, &ti);
+    newVector(VLEN, &srs);
+    newVector(VLEN, &res);
+
+    tr = VDUPL(tx);
+    ti = VDUPH(tx);
+    srs = VBYI(sr);
+    VMUL(VLEN, sr, &tr, &res);
+    VFMA(VLEN, &ti, &srs, &res);
+
+    freeVector(&tr);
+    freeVector(&ti);
+    freeVector(&srs);
+    return res;
 }
 
-static inline V VZMULJ(V tx, V sr) {
-	Vuint VLEN = VL(VETYPE);
-    V tr = VDUPL(tx);
-    V ti = VDUPH(tx);
-    tr = VMUL(VLEN, sr, tr);
-    sr = VBYI(sr);
-    return VFNMS(VLEN, ti, sr, tr);
+static inline V VZMULJ(V* tx, V* sr) {
+	const Suint VLEN = VL();
+    V tr, ti, srs, res;
+    newVector(VLEN, &tr);
+    newVector(VLEN, &ti);
+    newVector(VLEN, &srs);
+    newVector(VLEN, &res);
+    
+    tr = VDUPL(tx);
+    ti = VDUPH(tx);
+    srs = VBYI(sr); 
+    VMUL(VLEN, sr, &tr, &res);
+    VFNMS(VLEN, &ti, &srs, &res);
+
+    freeVector(&tr);
+    freeVector(&ti);
+    freeVector(&srs);
+    return res;
 }
 
-static inline V VZMULI(V tx, V sr) {
-    Vuint VLEN = VL(VETYPE);
-    V tr = VDUPL(tx);
-    V ti = VDUPH(tx);
-    ti = VMUL(VLEN, ti, sr);
-    sr = VBYI(sr);
-    return VFMS(VLEN, tr, sr, ti);
+static inline V VZMULI(V* tx, V* sr) {
+    const Suint VLEN = VL();
+    V tr, ti, srs, res;
+    newVector(VLEN, &tr);
+    newVector(VLEN, &ti);
+    newVector(VLEN, &srs);
+    newVector(VLEN, &res);
+
+    tr = VDUPL(tx);
+    ti = VDUPH(tx);
+    srs = VBYI(sr);
+    VMUL(VLEN, sr, &tr, &res);
+    VFMS(VLEN, &ti, &srs, &res);
+
+    freeVector(&tr);
+    freeVector(&ti);
+    freeVector(&srs);
+    return res;
 }
 
-static inline V VZMULIJ(V tx, V sr) {
-	Vuint VLEN = VL(VETYPE);
-    V tr = VDUPL(tx);
-    V ti = VDUPH(tx);
-    ti = VMUL(VLEN, ti, sr);
-    sr = VBYI(sr);
-    return VFMA(VLEN, tr, sr, ti);
+static inline V VZMULIJ(V* tx, V* sr) {
+    const Suint VLEN = VL();
+    V tr, ti, srs, res;
+    newVector(VLEN, &tr);
+    newVector(VLEN, &ti);
+    newVector(VLEN, &srs);
+    newVector(VLEN, &res);
+
+    tr = VDUPL(tx);
+    ti = VDUPH(tx);
+    srs = VBYI(sr);
+    VMUL(VLEN, sr, &tr, &res);
+    VFMA(VLEN, &ti, &srs, &res);
+
+    freeVector(&tr);
+    freeVector(&ti);
+    freeVector(&srs);
+    return res;
 }
 
 
