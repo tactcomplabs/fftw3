@@ -64,22 +64,11 @@ typedef struct Vuint{
     Suint* vals;
 }Vuint;
 
-// Get vector length (# elements) from vsetvli
-#define VL() ({                                                             \
-    Suint res;                                                              \
-    __asm__ volatile(                                                       \
-        "vsetvli %0, zero, e" str(SEW) ", m1, ta, ma"                       \
-        :"=m" (res)                                                         \
-        :                                                                   \
-    );                                                                      \
-    res;                                                                    \
-})
-
 // Constructor/destructor
 static inline void newVector(const Suint n, void* vec) {
     V* tmp = (V*)vec;
     tmp->nElem = n;
-    tmp->vals = calloc(n, SEW);
+    tmp->vals = calloc(2*n, SEW);
 }
 
 static inline void freeVector(void* vec) {
@@ -106,7 +95,7 @@ static inline void freeVector(void* vec) {
                 "\n\t bnez %1, 1b"                                          \
                 "\n\t ret"                                                  \
             :"=m"(z->vals)                                                  \
-            :"r"(n), "m"(x->vals), "m"(y->vals)                             \
+            :"r"(2*n), "m"(x->vals), "m"(y->vals)                             \
             :"t0"                                                           \
         );                                                                  \
     }
@@ -130,7 +119,7 @@ static inline void freeVector(void* vec) {
                 "\n\t bnez %1, 1b"                                          \
                 "\n\t ret"                                                  \
             :"=m"(z->vals)                                                  \
-            :"r"(n), "m"(x->vals), "m"(y->vals)                             \
+            :"r"(2*n), "m"(x->vals), "m"(y->vals)                           \
             :"t0"                                                           \
         );                                                                  \
     }                                                                      
@@ -152,7 +141,7 @@ static inline void freeVector(void* vec) {
             "\n\t bnez %1, 1b"                                              \
             "\n\t ret"                                                      \
             :"=m"(y->vals)                                                  \
-            :"r"(n), "m"(x->vals)                                           \
+            :"r"(2*n), "m"(x->vals)                                         \
             :"t0"                                                           \
             );                                                              \
     }
@@ -197,7 +186,7 @@ static inline void vpartsplit(const Suint n, Vuint* dest) {
         "1:"                                                        \
         "\n\t vsetvli t0, %1, e" str(SEW) ", ta, ma"                \
             "\n\t sub %1, %1, t0"                                   \
-            "\n\t slli t0, t0, " str(eshift)                        \
+            "\n\t slli t0, t0, " str(ESHIFT)                        \
 	    "vid.v v0" 	                                                \
         "vand.vi v0, v0, 1"                                         \
         "vsub.vi v0, v0, 1"                                         \
@@ -206,7 +195,7 @@ static inline void vpartsplit(const Suint n, Vuint* dest) {
             "\n\t bnez %1, 1b"                                      \
             "\n\t ret"                                              \
 	    :"=m"(dest->vals)   	                                    \
-	    :"r"(n)            		                                    \
+	    :"r"(2*n)            		                                \
         :"t0"                                                       \
     );                                                              \
 }
@@ -232,135 +221,121 @@ static inline void slide1Down(const Suint n, const V* src, V* dest) {
 }
 
 // a+bi => a+ai for all elements
-static inline V VDUPL(const V* x) {
-	const Suint VLEN = VL();
-    V xl, xls, res;
-    Vuint partr;
-    newVector(VLEN, &xl);
-    newVector(VLEN, &xls);
-    newVector(VLEN, &partr);
-    newVector(VLEN, &res);
-
-    vpartsplit(VLEN, &partr);         // (-1, 0, -1, 0...)
-    VAND(VLEN, x, &partr, &xl); // Mask off even indices
-    slide1Up(VLEN, &xl, &xls);
-    VADD(VLEN, &xls, &xl, &res);
-
-    freeVector(&xl);
-    freeVector(&xls);
-    freeVector(&partr);
-    return res;
+static inline void DUPL_RE(const V* src, V* res) {
+    Suint n = 2 * src->nElem;                                                           \
+    __asm__ volatile(                                                                   \
+        "1:"                                                                            \
+        "\n\t vsetvli t0, %1, e" str(SEW) ", ta, ma"  /* # of elems left */             \
+        "\n\t vlseg2e" str(SEW)  ".v v0, (%2)"        /* load Re/Im into v0/v1 */       \
+            "\n\t slli t0, t0, 1"                     /* adjust t0 for double load */   \
+            "\n\t sub %1, %1, t0"                     /* decrement elems left by t0 */  \
+            "\n\t slli t0, t0, " str(ESHIFT)          /* convert # elems to bytes */    \
+            "\n\t add %2, %2, t0"                     /* bump pointer */                \
+        "\n\t vmv.v.v v1, v0"                         /* replace Im with Re */          \
+        "\n\t vsseg2e" str(SEW) ".v v0, (%0)"         /* store back into memory */      \
+            "\n\t add %0, %0, t0"                     /* bump res pointer */            \
+        "\n\t bnez %1, 1b"                            /* loop back? */                  \
+        "\n\t ret"                                                                      \
+        :"=m"(res->vals)                                                                \
+        :"r"(n), "m"(src->vals)                                                         \
+        :"t0"                                                                           \
+    );                                                                                  \                                                           
 }
 
 // a+bi => b+bi for all elements
-static inline V VDUPH(const V* x) {
-	const Suint VLEN = VL();
-    V xh, xhs, res;
-    Vuint partr, parti;
-    newVector(VLEN, &xh);
-    newVector(VLEN, &xhs);
-    newVector(VLEN, &partr);
-    newVector(VLEN, &parti);
-    newVector(VLEN, &res);
-
-    vpartsplit(VLEN, &partr);         // (-1, 0, -1, 0, ...)
-    VNOT(VLEN, &partr, &parti); // (0, -1, 0, -1, ...)
-    VAND(VLEN, x, &parti, &xh); // Mask off odd indices
-    slide1Down(VLEN, &xh, &xhs);
-    VADD(VLEN, &xhs, &xh, &res);
-
-    freeVector(&xh);
-    freeVector(&xhs);
-    freeVector(&partr);
-    freeVector(&parti);
-    return res;
+static inline void DUPL_IM(const V* src, V* res) {
+    Suint n = 2 * src->nElem;                                                           \
+    __asm__ volatile(                                                                   \
+        "1:"                                                                            \
+        "\n\t vsetvli t0, %1, e" str(SEW) ", ta, ma"  /* # of elems left */             \
+        "\n\t vlseg2e" str(SEW) ".v v0, (%2)"         /* load Re/Im into v0/v1 */       \
+            "\n\t slli t0, t0, 1"                     /* adjust t0 for double load */   \
+            "\n\t sub %1, %1, t0"                     /* decrement elems left by t0 */  \
+            "\n\t slli t0, t0, " str(ESHIFT)          /* convert t0 to bytes */         \
+            "\n\t add %2, %2, t0"                     /* bump pointer */                \
+        "\n\t vmv.v.v v0, v1"                         /* replace Re with Im */          \
+        "\n\t vsseg2e" str(SEW) ".v v0, (%0)"         /* store back into memory */      \
+            "\n\t add %0, %0, t0"                     /* bump res pointer */            \
+        "\n\t bnez %1, 1b"                            /* loop back? */                  \
+        "\n\t ret"                                                                      \
+        :"=m"(res->vals)                                                                \
+        :"r"(n), "m"(src->vals)                                                         \
+        :"t0"                                                                           \
+    );                                                                                  \
 }
 
 // a+bi => b+ai for all elements
-static inline V FLIP_RI(const V* x) {
-	const Suint VLEN = VL();
-    V xh, xl, xhs, xls, res;
-    Vuint partr, parti;
-    newVector(VLEN, &xh);
-    newVector(VLEN, &xl);
-    newVector(VLEN, &xhs);
-    newVector(VLEN, &xls);
-    newVector(VLEN, &partr);
-    newVector(VLEN, &parti);
-    newVector(VLEN, &res);
-
-    vpartsplit(VLEN, &partr);         // (-1, 0, -1, 0, ...)
-    VAND(VLEN, x, &partr, &xl);
-    VNOT(VLEN, &partr, &parti); // (0, -1, 0, -1, ...)
-    VAND(VLEN, x, &parti, &xh); // set even elements to 0
-    slide1Down(VLEN, &xh, &xhs);
-    slide1Up(VLEN, &xl, &xls);
-    VADD(VLEN, &xhs, &xls, &res);
-
-    freeVector(&xh);    
-    freeVector(&xl);
-    freeVector(&xhs);    
-    freeVector(&xls);    
-    freeVector(&partr);
-    freeVector(&parti);
-    return res;
+static inline void FLIP_RI(const V* src, V* res) {
+    Suint n = 2 * src->nElem;
+    const Suint SEWB = SEW / 8; // SEW in bytes
+    __asm__ volatile(
+            "\n\t slli t2, %3, 1"                       /* stride in bytes */               \
+        "1:"                                                                                \
+        "\n\t vsetvli t0, %1, e" str(SEW) ", ta, ma"    /* # of elems left */               \
+        "\n\t vlse" str(SEW) ".v v1, (%2), t2"          /* load Re into v1 */               \
+        "\n\t add t1, %2, %3"                           /* advance one elem */              \
+        "\n\t vlse" str(SEW) ".v v0, t1, t2"            /* load Im into v0 */               \
+            "\n\t slli t0, t0, 1"                       /* adjust t0 for double load */     \
+            "\n\t sub %1, %1, t0"                       /* decrement elems left by t0 */    \
+            "\n\t slli t0, t0, " str(ESHIFT)            /* convert t0 to bytes */           \
+            "\n\t add %2, %2, t0"                       /* bump pointer */                  \
+        "\n\t vsseg2e" str(SEW) ".v v0, (%0)"           /* store back into memory */        \
+            "\n\t add %0, %0, t0"                       /* bump res pointer */              \
+        "\n\t bnez %1, 1b"                              /* loop back? */                    \
+        "\n\t ret"                                                                          \
+        :"=m"(res->vals)                                                                    \
+        :"r"(n), "m"(src->vals), "r"(SEWB)                                                  \
+        :"t0","t1","t2"                                                                     \
+    );
 }
 
 // a+bi => a-bi for all elements
-static inline V VCONJ(const V* x) {
-	const Suint VLEN = VL();
-    V xh, xl, res;
-    Vuint partr, parti;
-    newVector(VLEN, &xh);
-    newVector(VLEN, &xl);
-    newVector(VLEN, &partr);
-    newVector(VLEN, &parti);
-    newVector(VLEN, &res);
-
-    vpartsplit(VLEN, &partr);         // (-1, 0, -1, 0, ...)
-    VAND(VLEN, x, &partr, &xl);
-    VNOT(VLEN, &partr, &parti); // (0, -1, 0, -1, ...)
-    VAND(VLEN, x, &parti, &xh); // set even elements to 0
-    VNEG(VLEN, &xh, &xh);       // take conjugate
-    VADD(VLEN, &xh, &xl, &res);
-
-    freeVector(&xh);    
-    freeVector(&xl);
-    freeVector(&partr);
-    freeVector(&parti);
-    return res;
+static inline void VCONJ(const V* src, V* res) {
+    Suint n = 2 * src->nElem;                                                           \
+    __asm__ volatile(                                                                   \
+        "1:"                                                                            \
+        "\n\t vsetvli t0, %1, e" str(SEW) ", ta, ma"  /* # of elems left */             \
+        "\n\t vlseg2e" str(SEW)  ".v v0, (%2)"        /* load Re/Im into v0/v1 */       \
+            "\n\t sub %1, %1, t0"                     /* decrement elems left by t0 */  \
+            "\n\t slli t0, t0, " str(ESHIFT)          /* convert t0 to bytes */         \
+            "\n\t add %2, %2, t0"                     /* bump pointer */                \
+        "\n\t vneg.v v1, v1"                          /* conjugate Im */                \
+        "\n\t vsseg2e" str(SEW) ".v v0, (%0)"         /* store back into memory */      \
+            "\n\t add %2, %2, t0"                     /* bump pointer */                \
+        "\n\t bnez %1, 1b"                            /* loop back? */                  \
+        "\n\t ret"                                                                      \
+        :"=m"(res->vals)                                                                \
+        :"r"(n), "m"(src->vals)                                                         \
+        :"t0"                                                                           \
+    );                                                                                  \
 }
 
 // a+bi => -b+ai for all elements
-static inline V VBYI(V* x) {
-	const Suint VLEN = VL();
-    V xh, xl, xls, xhs, res;
-    Vuint partr, parti;
-    newVector(VLEN, &xh);
-    newVector(VLEN, &xl);
-    newVector(VLEN, &xls);
-    newVector(VLEN, &xhs);
-    newVector(VLEN, &partr);
-    newVector(VLEN, &parti);
-    newVector(VLEN, &res);
-
-    vpartsplit(VLEN, &partr);         // (-1, 0, -1, 0, ...)
-    VAND(VLEN, x, &partr, &xl); // set odd elements to 0
-    VNOT(VLEN, &partr, &parti); // (0, -1, 0, -1, ...)
-    VNEG(VLEN, x, x);           // take conjugate
-    VAND(VLEN, x, &parti, &xh); // set even elements to 0
-    slide1Down(VLEN, &xh, &xhs);
-    slide1Up(VLEN, &xl, &xls);
-    VADD(VLEN, &xls, &xhs, &res);
-
-    newVector(VLEN, &xh);
-    newVector(VLEN, &xl);
-    newVector(VLEN, &xls);
-    newVector(VLEN, &xhs);
-    newVector(VLEN, &partr);
-    newVector(VLEN, &parti);
-    return res;
+static inline void VBYI(const V* x, V* res) {
+    Suint n = 2 * x->nElem;
+    const Suint SEWB = SEW / 8; // SEW in bytes
+    __asm__ volatile(
+            "\n\t slli t2, %3, 1"                       /* stride in bytes */               \
+        "1:"                                                                                \
+        "\n\t vsetvli t0, %1, e" str(SEW) ", ta, ma"    /* # of elems left */               \
+        "\n\t vlse" str(SEW) ".v v1, (%2), t2"          /* load Re into v1 */               \
+            "\n\t add t1, %2, %3"                       /* advance one element*/            \
+        "\n\t vlse" str(SEW) ".v v0, t1, t2"            /* load Im into v0 */               \
+            "\n\t slli t0, t0, 1"                       /* adjust t0 for 2x load */         \
+            "\n\t sub %1, %1, t0"                       /* decrement elems left by t0 */    \
+            "\n\t slli t0, t0, " str(ESHIFT)            /* convert t0 to bytes */           \
+            "\n\t add %2, %2, t0"                       /* bump pointer */                  \
+        "\n\t vneg.v.v v0, v0"                          /* conjugate Im */                  \
+        "\n\t vsseg2e" str(SEW) ".v v0, (%0)"           /* store back into memory */        \
+            "\n\t add %0, %0, t0"                       /* bump res pointer */              \
+        "\n\t bnez %1, 1b"                              /* loop back? */                    \
+        "\n\t ret"                                                                          \
+        :"=m"(res->vals)                                                                    \
+        :"r"(n), "m"(src->vals), "r"(SEWB)                                                  \
+        :"t0","t1","t2"                                                                     \
+    );
 }
+
 
 // Hybrid instructions
 #define VFMAI(b, c) VADD(c, VBYI(b))
@@ -369,19 +344,19 @@ static inline V VBYI(V* x) {
 #define VFMSCONJ(b, c) VSUB(VCONJ(b), c)
 #define VFNMSCONJ(b, c) VSUB(c, VCONJ(b))
 
-static inline V VZMUL(V* tx, V* sr) {
-	const Suint VLEN = VL();
+static inline void VZMUL(V* tx, V* sr) {
+	const Suint n = src->nElem;
     V tr, ti, srs, res;
-    newVector(VLEN, &tr);
-    newVector(VLEN, &ti);
-    newVector(VLEN, &srs);
-    newVector(VLEN, &res);
+    newVector(n, &tr);
+    newVector(n, &ti);
+    newVector(n, &srs);
+    newVector(n, &res);
 
-    tr = VDUPL(tx);
-    ti = VDUPH(tx);
+    tr = DUPL_RE(tx);
+    ti = DUPL_IM(tx);
     srs = VBYI(sr);
-    VMUL(VLEN, sr, &tr, &res);
-    VFMA(VLEN, &ti, &srs, &res);
+    VMUL(n, sr, &tr, &res);
+    VFMA(n, &ti, &srs, &res);
 
     freeVector(&tr);
     freeVector(&ti);
@@ -389,19 +364,19 @@ static inline V VZMUL(V* tx, V* sr) {
     return res;
 }
 
-static inline V VZMULJ(V* tx, V* sr) {
-	const Suint VLEN = VL();
+static inline void VZMULJ(V* tx, V* sr) {
+	const Suint n = src->nElem;
     V tr, ti, srs, res;
-    newVector(VLEN, &tr);
-    newVector(VLEN, &ti);
-    newVector(VLEN, &srs);
-    newVector(VLEN, &res);
+    newVector(n, &tr);
+    newVector(n, &ti);
+    newVector(n, &srs);
+    newVector(n, &res);
     
-    tr = VDUPL(tx);
-    ti = VDUPH(tx);
+    tr = DUPL_RE(tx);
+    ti = DUPL_IM(tx);
     srs = VBYI(sr); 
-    VMUL(VLEN, sr, &tr, &res);
-    VFNMS(VLEN, &ti, &srs, &res);
+    VMUL(n, sr, &tr, &res);
+    VFNMS(n, &ti, &srs, &res);
 
     freeVector(&tr);
     freeVector(&ti);
@@ -409,19 +384,19 @@ static inline V VZMULJ(V* tx, V* sr) {
     return res;
 }
 
-static inline V VZMULI(V* tx, V* sr) {
-    const Suint VLEN = VL();
+static inline void VZMULI(V* tx, V* sr) {
+    const Suint n = src->nElem;
     V tr, ti, srs, res;
-    newVector(VLEN, &tr);
-    newVector(VLEN, &ti);
-    newVector(VLEN, &srs);
-    newVector(VLEN, &res);
+    newVector(n, &tr);
+    newVector(n, &ti);
+    newVector(n, &srs);
+    newVector(n, &res);
 
-    tr = VDUPL(tx);
-    ti = VDUPH(tx);
+    tr = DUPL_RE(tx);
+    ti = DUPL_IM(tx);
     srs = VBYI(sr);
-    VMUL(VLEN, sr, &tr, &res);
-    VFMS(VLEN, &ti, &srs, &res);
+    VMUL(n, sr, &tr, &res);
+    VFMS(n, &ti, &srs, &res);
 
     freeVector(&tr);
     freeVector(&ti);
@@ -429,19 +404,19 @@ static inline V VZMULI(V* tx, V* sr) {
     return res;
 }
 
-static inline V VZMULIJ(V* tx, V* sr) {
-    const Suint VLEN = VL();
+static inline void VZMULIJ(V* tx, V* sr) {
+    const Suint n = src->nElem;
     V tr, ti, srs, res;
-    newVector(VLEN, &tr);
-    newVector(VLEN, &ti);
-    newVector(VLEN, &srs);
-    newVector(VLEN, &res);
+    newVector(n, &tr);
+    newVector(n, &ti);
+    newVector(n, &srs);
+    newVector(n, &res);
 
-    tr = VDUPL(tx);
-    ti = VDUPH(tx);
+    tr = DUPL_RE(tx);
+    ti = DUPL_IM(tx);
     srs = VBYI(sr);
-    VMUL(VLEN, sr, &tr, &res);
-    VFMA(VLEN, &ti, &srs, &res);
+    VMUL(n, sr, &tr, &res);
+    VFMA(n, &ti, &srs, &res);
 
     freeVector(&tr);
     freeVector(&ti);
