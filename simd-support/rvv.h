@@ -335,52 +335,49 @@ static inline void VBYI(const V src, V res, const Suint nElem) {
 }
 
 // Hybrid instructions
-#define VFMAI(b, c)     VADD(c, VBYI(b))
-#define VFNMSI(b, c)    VSUB(c, VBYI(b))
-#define VFMACONJ(b, c)  VADD(VCONJ(b), c)
-#define VFMSCONJ(b, c)  VSUB(VCONJ(b), c)
-#define VFNMSCONJ(b, c) VSUB(c, VCONJ(b))
+#define VFMAI(b, c, n)     VADD(c, VBYI(b, n), n)
+#define VFNMSI(b, c, n)    VSUB(c, VBYI(b, n), n)
+#define VFMACONJ(b, c, n)  VADD(c, VCONJ(b, n), n)
+#define VFMSCONJ(b, c, n)  VSUB(VCONJ(b, n), c, n)
+#define VFNMSCONJ(b, c, n) VSUB(c, VCONJ(b, n), n)
 
+// (a+bi) * (c+di)
 static inline void VZMUL(V tx, V sr, V res, const Suint nElem) {
     const Suint n = 2 * nElem;
-    
+
     Sfloat txRe[n];
     Sfloat txIm[n];
-    Sfloat srSwap[n];
-
     memset(&txRe, 0, n * SEW);
     memset(&txIm, 0, n * SEW);
-    memset(&srSwap, 0, n * SEW);
-
-    DUPL_RE(tx, &txRe, nElem);
-    DUPL_RE(tx, &txIm, nElem);
-    FLIP_RI(sr, &srSwap, nElem);
-    
-    VMUL(&txIm, &srSwap, res, nElem);
-    VADDSUB(&txRe, sr, res, nElem);
-
-}
-
-static inline void VZMULJ(V tx, V sr, V res, const Suint nElem) {
-    const Suint n = 2 * nElem;
-    
-    Sfloat txRe[n];
-    Sfloat txIm[n];
-    Sfloat srSwap[n];
-
-    memset(&txRe, 0, n * SEW);
-    memset(&txIm, 0, n * SEW);
-    memset(&srSwap, 0, n * SEW);
 
     DUPL_RE(tx, &txRe, nElem);
     DUPL_IM(tx, &txIm, nElem);
-    FLIP_RI(sr, &srSwap, nElem);
-    
-    VMUL(&txIm, &srSwap, res, nElem);
+    FLIP_RI(sr, res, nElem);
+
+    VMUL(&txIm, res, res, nElem);
     VSUBADD(&txRe, sr, res, nElem);
 
 }
 
+// conj(a+bi) * (c+di)
+static inline void VZMULJ(V tx, V sr, V res, const Suint nElem) {
+    const Suint n = 2 * nElem;
+
+    Sfloat txRe[n];
+    Sfloat txIm[n];
+    memset(&txRe, 0, n * SEW);
+    memset(&txIm, 0, n * SEW);
+
+    DUPL_RE(tx, &txRe, nElem);
+    DUPL_IM(tx, &txIm, nElem);
+    FLIP_RI(sr, res, nElem);
+
+    VMUL(&txIm, res, res, nElem);
+    VADDSUB(&txRe, sr, res, nElem);
+
+}
+
+// (a+bi) * (c+di) -> conj -> flip R/I
 static inline void VZMULI(V tx, V sr, V res, const Suint nElem) {
     const Suint n = 2 * nElem;
     Sfloat txRe[n];
@@ -389,25 +386,24 @@ static inline void VZMULI(V tx, V sr, V res, const Suint nElem) {
     DUPL_RE(tx, &txRe, nElem);
     DUPL_IM(tx, res, nElem);
 
-    VMUL(&res, sr, &res, nElem);
+    VMUL(res, sr, res, nElem);
     VBYI(sr, sr, nElem);
     VFMS(&txRe, sr, res, nElem);
 }
 
+// (a+bi) * (c+di) -> flip R/I -> conj
 static inline void VZMULIJ(V tx, V sr, V res, const Suint nElem) {
     const Suint n = 2 * nElem;
     Sfloat txRe[n];
     Sfloat txIm[n];
-    Sfloat srFlip[n];
 
     memset(&txRe, 0, n * SEW);
     memset(&txIm, 0, n * SEW);
-    memset(&srFlip, 0, n * SEW);
-    
+
     DUPL_RE(tx, &txRe, nElem);
     DUPL_IM(tx, &txIm, nElem);
-    FLIP_RI(sr, &srFlip, nElem);
-    VMUL(&srFlip, &txRe, res, nElem);
+    FLIP_RI(sr, res, nElem);
+    VMUL(res, &txRe, res, nElem);
     VADDSUB(sr, &txIm, res, nElem);
 }
 
