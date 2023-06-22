@@ -26,7 +26,9 @@
  *
  */
 
-#ifndef __riscv_xlen && __riscv_xlen == 64
+#if !defined(__riscv_xlen) || __riscv_xlen != 64
+#error "RISCV-V vector extension targets RV64"
+#endif
 
 #if defined(FFTW_LDOUBLE) || defined(FFTW_QUAD)
 #error "RISC-V V vector instructions only works in single or double precision"
@@ -252,7 +254,7 @@ static inline void DUPL_IM(const V src, V res, const Suint nElem) {
             "\n\t slli t0, t0, " str(ESHIFT)          /* convert t0 to bytes */             \
             "\n\t add %2, %2, t0"                     /* bump pointer */                    \
         "\n\t vmv.v.v v0, v1"                         /* replace Re with Im */              \
-        "\n\t vsseg2e" str(SEW) ".v v0, (%0)"         /* store back into memory */          \   
+        "\n\t vsseg2e" str(SEW) ".v v0, (%0)"         /* store back into memory */          \
             "\n\t add %0, %0, t0"                     /* bump res pointer */                \
         "\n\t bnez %1, 1b"                            /* loop back? */                      \
         "\n\t ret"                                                                          \
@@ -350,12 +352,12 @@ static inline void VZMUL(V tx, V sr, V res, const Suint nElem) {
     memset(&txRe, 0, n * SEW);
     memset(&txIm, 0, n * SEW);
 
-    DUPL_RE(tx, &txRe, nElem);
-    DUPL_IM(tx, &txIm, nElem);
+    DUPL_RE(tx, &txRe[0], nElem);
+    DUPL_IM(tx, &txIm[0], nElem);
     FLIP_RI(sr, res, nElem);
 
-    VMUL(&txIm, res, res, nElem);
-    VSUBADD(&txRe, sr, res, nElem);
+    VMUL(&txIm[0], res, res, nElem);
+    VSUBADD(&txRe[0], sr, res, nElem);
 
 }
 
@@ -368,12 +370,12 @@ static inline void VZMULJ(V tx, V sr, V res, const Suint nElem) {
     memset(&txRe, 0, n * SEW);
     memset(&txIm, 0, n * SEW);
 
-    DUPL_RE(tx, &txRe, nElem);
-    DUPL_IM(tx, &txIm, nElem);
+    DUPL_RE(tx, &txRe[0], nElem);
+    DUPL_IM(tx, &txIm[0], nElem);
     FLIP_RI(sr, res, nElem);
 
-    VMUL(&txIm, res, res, nElem);
-    VADDSUB(&txRe, sr, res, nElem);
+    VMUL(&txIm[0], res, res, nElem);
+    VADDSUB(&txRe[0], sr, res, nElem);
 
 }
 
@@ -383,12 +385,12 @@ static inline void VZMULI(V tx, V sr, V res, const Suint nElem) {
     Sfloat txRe[n];
     memset(&txRe, 0, n * SEW);
 
-    DUPL_RE(tx, &txRe, nElem);
+    DUPL_RE(tx, &txRe[0], nElem);
     DUPL_IM(tx, res, nElem);
 
     VMUL(res, sr, res, nElem);
     VBYI(sr, sr, nElem);
-    VFMS(&txRe, sr, res, nElem);
+    VFMS(&txRe[0], sr, res, nElem);
 }
 
 // (a+bi) * (c+di) -> flip R/I -> conj
@@ -400,15 +402,12 @@ static inline void VZMULIJ(V tx, V sr, V res, const Suint nElem) {
     memset(&txRe, 0, n * SEW);
     memset(&txIm, 0, n * SEW);
 
-    DUPL_RE(tx, &txRe, nElem);
-    DUPL_IM(tx, &txIm, nElem);
+    DUPL_RE(tx, &txRe[0], nElem);
+    DUPL_IM(tx, &txIm[0], nElem);
     FLIP_RI(sr, res, nElem);
-    VMUL(res, &txRe, res, nElem);
-    VADDSUB(sr, &txIm, res, nElem);
+    VMUL(res, &txRe[0], res, nElem);
+    VADDSUB(sr, &txIm[0], res, nElem);
 }
 
 
-#else
-#error "RISC-V V vector only works for 64 bits"
-#endif
 
