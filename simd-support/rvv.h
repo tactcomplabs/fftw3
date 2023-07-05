@@ -48,17 +48,19 @@
 #define str(x) xstr(x)
 #define xstr(x) #x
 
-#include <stdint.h>
-#include <stdlib.h>
+#include <stdint.h> // uint32/64_t
+#include <stddef.h> // ptrdiff_t
 #include <string.h> // memset
+#include <stdlib.h> // calloc
 
 // Scalar types
 typedef DS(uint64_t, uint32_t) Suint;
-typedef DS(double, float) Sfloat;
+typedef ptrdiff_t INT; // from kernel/ifftw.h
+typedef DS(double, float) R;
 
 // Vector types
 typedef Suint* Vuint;
-typedef Sfloat* V;
+typedef R* V;
 
 // Assembly for basic arithmetic operations
 #define VOP(op, etype)                                                          \
@@ -67,14 +69,14 @@ typedef Sfloat* V;
         __asm__ volatile(                                                       \
             "1:"                                                                \
             "\n\t vsetvli t0, %1, e" str(SEW) ", ta, ma"                        \
-            "\n\t vle" str(SEW)  " v0, (%2)"                                    \
+            "\n\t vle" str(SEW)  ".v v0, (%2)"                                  \
                 "\n\t sub %1, %1, t0"                                           \
                 "\n\t slli t0, t0, " str(ESHIFT)                                \
                 "\n\t add %2, %2, t0"                                           \
-            "\n\t vle" str(SEW)  " v1, (%3)"                                    \
+            "\n\t vle" str(SEW)  ".v v1, (%3)"                                  \
                 "\n\t add %3, %3, t0"                                           \
-            "\n\t" #op " v2, v0, v1"                                            \
-            "\n\t vse" str(SEW)  " v2, (%0)"                                    \
+            "\n\t" #op ".vv v2, v0, v1"                                         \
+            "\n\t vse" str(SEW)  ".v v2, (%0)"                                  \
                 "\n\t add %0, %0, t0"                                           \
                 "\n\t bnez %1, 1b"                                              \
                 "\n\t ret"                                                      \
@@ -91,14 +93,14 @@ typedef Sfloat* V;
         __asm__ volatile(                                                       \
             "1:"                                                                \
             "\n\t vsetvli t0, %1, e" str(SEW) ", ta, ma"                        \
-            "\n\t vle" str(SEW)  " v0, (%2)"                                    \
+            "\n\t vle" str(SEW)  ".v v0, (%2)"                                  \
                 "\n\t sub %1, %1, t0"                                           \
                 "\n\t slli t0, t0, " str(ESHIFT)                                \
                 "\n\t add %2, %2, t0"                                           \
-            "\n\t vle" str(SEW)  " v1, (%3)"                                    \
+            "\n\t vle" str(SEW)  ".v v1, (%3)"                                  \
                 "\n\t add %3, %3, t0"                                           \
-            "\n\t" #op " v2, v0, v1"                                            \
-            "\n\t vs" str(SEW)  " v2, (%0)"                                     \
+            "\n\t" #op ".vv v2, v0, v1"                                         \
+            "\n\t vse" str(SEW)  ".v v2, (%0)"                                  \
                 "\n\t add %0, %0, t0"                                           \
                 "\n\t bnez %1, 1b"                                              \
                 "\n\t ret"                                                      \
@@ -115,12 +117,12 @@ typedef Sfloat* V;
         __asm__ volatile(                                                       \
             "1:"                                                                \
             "\n\t vsetvli t0, %1, e" str(SEW) ", ta, ma"                        \
-            "\n\t vle" str(SEW)  " v0, (%2)"                                    \
+            "\n\t vle" str(SEW)  ".v v0, (%2)"                                  \
                 "\n\t sub %1, %1, t0"                                           \
                 "\n\t slli t0, t0, " str(ESHIFT)                                \
                 "\n\t add %2, %2, t0"                                           \
-            "\n\t" #op " v1, v0"                                                \
-            "\n\t vse" str(SEW)  " v1, (%0)"                                    \
+            "\n\t" #op ".v v1, v0"                                              \
+            "\n\t vse" str(SEW)  ".v v1, (%0)"                                  \
                 "\n\t add %2, %2, t0"                                           \
             "\n\t bnez %1, 1b"                                                  \
             "\n\t ret"                                                          \
@@ -172,7 +174,7 @@ static inline void VSUBADD(const V x, const V y, V z, const Suint nElem) {
         "\n\t vsetvli t0, %1, e" str(SEW) ", ta, ma"    /* # of elems left */               \
         "\n\t vid.v v0"                                 /* 1, 2, 3, 4 ... */                \
         "\n\t vand.vi v0, v0, 1"                        /* 0, 1, 0, 1 ... */                \
-        "\n\t vrsub.vi v0, v0, 1"                       /* 1, 0, 1, 0 ... */                \
+        "\n\t vnot.v v0, v0, 1"                         /* 1, 0, 1, 0 ... */                \
         "\n\t vle" str(SEW) ".v v1, (%2)"               /* load x into v1 */                \
         "\n\t vle" str(SEW) ".v v2, (%3)"               /* load y into v2 */                \
         "\n\t vle" str(SEW) ".v v3, (%0)"               /* load z into v3 */                \
@@ -221,7 +223,7 @@ static inline void VADDSUB(const V x, const V y, V z, const Suint nElem) {
 }
 
 // a+bi => a+ai for all elements
-static inline void DUPL_RE(const V src, V res, const Suint nElem) {
+static inline void VDUPL(const V src, V res, const Suint nElem) {
     const Suint n = 2 * nElem;                                                             
     __asm__ volatile(                                                                       \
         "1:"                                                                                \
@@ -243,7 +245,7 @@ static inline void DUPL_RE(const V src, V res, const Suint nElem) {
 }
 
 // a+bi => b+bi for all elements
-static inline void DUPL_IM(const V src, V res, const Suint nElem) {
+static inline void VDUPH(const V src, V res, const Suint nElem) {
     const Suint n = 2 * nElem;                                                              \
     __asm__ volatile(                                                                       \
         "1:"                                                                                \
@@ -337,6 +339,7 @@ static inline void VBYI(const V src, V res, const Suint nElem) {
 }
 
 // Hybrid instructions
+#define LDK(x) x
 #define VFMAI(b, c, n)     VADD(c, VBYI(b, n), n)
 #define VFNMSI(b, c, n)    VSUB(c, VBYI(b, n), n)
 #define VFMACONJ(b, c, n)  VADD(c, VCONJ(b, n), n)
@@ -346,14 +349,13 @@ static inline void VBYI(const V src, V res, const Suint nElem) {
 // (a+bi) * (c+di)
 static inline void VZMUL(V tx, V sr, V res, const Suint nElem) {
     const Suint n = 2 * nElem;
-
-    Sfloat txRe[n];
-    Sfloat txIm[n];
+    R txRe[n];
+    R txIm[n];
     memset(&txRe, 0, n * SEW);
     memset(&txIm, 0, n * SEW);
 
-    DUPL_RE(tx, &txRe[0], nElem);
-    DUPL_IM(tx, &txIm[0], nElem);
+    VDUPL(tx, &txRe[0], nElem);
+    VDUPH(tx, &txIm[0], nElem);
     FLIP_RI(sr, res, nElem);
 
     VMUL(&txIm[0], res, res, nElem);
@@ -364,14 +366,13 @@ static inline void VZMUL(V tx, V sr, V res, const Suint nElem) {
 // conj(a+bi) * (c+di)
 static inline void VZMULJ(V tx, V sr, V res, const Suint nElem) {
     const Suint n = 2 * nElem;
-
-    Sfloat txRe[n];
-    Sfloat txIm[n];
+    R txRe[n];
+    R txIm[n];
     memset(&txRe, 0, n * SEW);
     memset(&txIm, 0, n * SEW);
 
-    DUPL_RE(tx, &txRe[0], nElem);
-    DUPL_IM(tx, &txIm[0], nElem);
+    VDUPL(tx, &txRe[0], nElem);
+    VDUPH(tx, &txIm[0], nElem);
     FLIP_RI(sr, res, nElem);
 
     VMUL(&txIm[0], res, res, nElem);
@@ -382,11 +383,11 @@ static inline void VZMULJ(V tx, V sr, V res, const Suint nElem) {
 // (a+bi) * (c+di) -> conj -> flip R/I
 static inline void VZMULI(V tx, V sr, V res, const Suint nElem) {
     const Suint n = 2 * nElem;
-    Sfloat txRe[n];
+    R txRe[n];
     memset(&txRe, 0, n * SEW);
 
-    DUPL_RE(tx, &txRe[0], nElem);
-    DUPL_IM(tx, res, nElem);
+    VDUPL(tx, &txRe[0], nElem);
+    VDUPH(tx, res, nElem);
 
     VMUL(res, sr, res, nElem);
     VBYI(sr, sr, nElem);
@@ -396,18 +397,36 @@ static inline void VZMULI(V tx, V sr, V res, const Suint nElem) {
 // (a+bi) * (c+di) -> flip R/I -> conj
 static inline void VZMULIJ(V tx, V sr, V res, const Suint nElem) {
     const Suint n = 2 * nElem;
-    Sfloat txRe[n];
-    Sfloat txIm[n];
-
+    R txRe[n];
+    R txIm[n];
     memset(&txRe, 0, n * SEW);
     memset(&txIm, 0, n * SEW);
 
-    DUPL_RE(tx, &txRe[0], nElem);
-    DUPL_IM(tx, &txIm[0], nElem);
+    VDUPL(tx, &txRe[0], nElem);
+    VDUPH(tx, &txIm[0], nElem);
     FLIP_RI(sr, res, nElem);
     VMUL(res, &txRe[0], res, nElem);
     VADDSUB(sr, &txIm[0], res, nElem);
 }
 
+// static inline void ST(R *x, V v, INT ovs, const R *aligned_like) {
+//     (void)aligned_like; // suppress unused var warning
 
+//     Vuint idx = TYPEUINT(vid_v)(VL); // (0, 1, 2, 3, ...)
+//     Vuint idx1 = TYPEUINT(vsll_vx)(idx, 1, VL); // (0, 2, 4, 6, ...)
+
+//     V vl = TYPE(vrgather_vv)(v, idx1, VL);
+//     TYPEMEM(vss)(x, sizeof(R)*ovs, vl, ovs ? VL : 1); // if ovs=0, store the first element
+
+//     Vuint idx2 = TYPEUINT(vadd_vx)(idx1, 1, VL); // (1, 3, 5, 7, ...)
+
+//     V vh = TYPE(vrgather_vv)(v, idx2, VL);
+//     TYPEMEM(vss)(x+1, sizeof(R)*ovs, vh, ovs ? VL : 1); // if ovs=0, store the first element
+// }
+
+// #define USE_VTW1
+// #define VLEN32 ({ Suint vlen; __asm__ volatile ("vsetvli %0, zero, e32, m1, ta, ma" : r(vlen)); vlen; })
+// #define VLEN64 ({ Suint vlen; __asm__ volatile ("vsetvli %0, zero, e64, m1, ta, ma" : r(vlen)); vlen; })
+// #include "vtw.h"
+// #undef USE_VTW1
 
