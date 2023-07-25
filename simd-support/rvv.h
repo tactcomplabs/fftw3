@@ -64,71 +64,68 @@ typedef R* V;
 
 // Assembly for basic arithmetic operations
 #define VOP(op, etype)                                                          \
-    void v##op(const etype x, const etype y, etype z, const Suint nElem) {      \
-        const Suint n = 2 * nElem;                                              \
+    void v##op(etype x, etype y, etype z, uintptr_t nElem) {                    \
+        uintptr_t n = 2 * nElem;                                                \
         __asm__ volatile(                                                       \
             "1:"                                                                \
-            "\n\t vsetvli t0, %1, e" str(SEW) ", ta, ma"                        \
-            "\n\t vle" str(SEW)  ".v v0, (%2)"                                  \
-                "\n\t sub %1, %1, t0"                                           \
+            "\n\t vsetvli t0, %3, e" str(SEW) ", m1, ta, ma"                    \
+            "\n\t vle" str(SEW)  ".v v0, (%0)"                                  \
+                "\n\t sub %3, %3, t0"                                           \
                 "\n\t slli t0, t0, " str(ESHIFT)                                \
-                "\n\t add %2, %2, t0"                                           \
-            "\n\t vle" str(SEW)  ".v v1, (%3)"                                  \
-                "\n\t add %3, %3, t0"                                           \
-            "\n\t" #op ".vv v2, v0, v1"                                         \
-            "\n\t vse" str(SEW)  ".v v2, (%0)"                                  \
                 "\n\t add %0, %0, t0"                                           \
-                "\n\t bnez %1, 1b"                                              \
-                "\n\t ret"                                                      \
-            :"=m"(z)                                                            \
-            :"r"(n), "m"(x), "m"(y)                                             \
-            :"t0"                                                               \
+            "\n\t vle" str(SEW)  ".v v1, (%1)"                                  \
+                "\n\t add %1, %1, t0"                                           \
+            "\n\t" #op ".vv v2, v0, v1"                                         \
+            "\n\t vse" str(SEW)  ".v v2, (%2)"                                  \
+                "\n\t add %2, %2, t0"                                           \
+                "\n\t bnez %3, 1b"                                              \
+            :"+r"(x), "+r"(y), "+r"(z), "+r"(n)                                 \
+            :                                                                   \
+            :"t0","memory"                                                      \
         );                                                                      \
     }
 
 // Assembly for fused arithmetic instructions
 #define VFOP(op, etype)                                                         \
-    void v##op(const etype x, const etype y, etype z, const Suint nElem) {      \
-        const Suint n = 2 * nElem;                                              \
+    void v##op(etype x, etype y, etype z, uintptr_t nElem) {                    \
+        uintptr_t n = 2 * nElem;                                                \
         __asm__ volatile(                                                       \
             "1:"                                                                \
-            "\n\t vsetvli t0, %1, e" str(SEW) ", ta, ma"                        \
-            "\n\t vle" str(SEW)  ".v v0, (%2)"                                  \
-                "\n\t sub %1, %1, t0"                                           \
+            "\n\t vsetvli t0, %3, e" str(SEW) ", m1, ta, ma"                    \
+            "\n\t vle" str(SEW)  ".v v0, (%0)"                                  \
+                "\n\t sub %3, %3, t0"                                           \
                 "\n\t slli t0, t0, " str(ESHIFT)                                \
-                "\n\t add %2, %2, t0"                                           \
-            "\n\t vle" str(SEW)  ".v v1, (%3)"                                  \
-                "\n\t add %3, %3, t0"                                           \
-            "\n\t" #op ".vv v2, v0, v1"                                         \
-            "\n\t vse" str(SEW)  ".v v2, (%0)"                                  \
                 "\n\t add %0, %0, t0"                                           \
-                "\n\t bnez %1, 1b"                                              \
-                "\n\t ret"                                                      \
-            :"=m"(z)                                                            \
-            :"r"(n), "m"(x), "m"(y)                                             \
-            :"t0"                                                               \
+            "\n\t vle" str(SEW)  ".v v1, (%1)"                                  \
+                "\n\t add %1, %1, t0"                                           \
+            "\n\t" #op ".vv v2, v0, v1"                                         \
+            "\n\t vse" str(SEW)  ".v v2, (%2)"                                  \
+                "\n\t add %2, %2, t0"                                           \
+                "\n\t bnez %3, 1b"                                              \
+            :"+r"(x), "+r"(y), "+r"(z), "+r"(n)                                 \
+            :                                                                   \
+            :"t0","memory"                                                      \
         );                                                                      \
     }                                                                      
 
 // Assembly for unary operations
 #define VOP_UN(op, etype)                                                       \
-    void v##op(const etype x, etype y, const Suint nElem) {                     \
-        const Suint n = 2 * nElem;                                              \
+    void v##op(etype x, etype y, uintptr_t nElem) {                             \
+        uintptr_t n = 2 * nElem;                                                \
         __asm__ volatile(                                                       \
             "1:"                                                                \
-            "\n\t vsetvli t0, %1, e" str(SEW) ", ta, ma"                        \
-            "\n\t vle" str(SEW)  ".v v0, (%2)"                                  \
-                "\n\t sub %1, %1, t0"                                           \
+            "\n\t vsetvli t0, %2, e" str(SEW) ", m1, ta, ma"                    \
+            "\n\t vle" str(SEW)  ".v v0, (%0)"                                  \
+                "\n\t sub %2, %2, t0"                                           \
                 "\n\t slli t0, t0, " str(ESHIFT)                                \
-                "\n\t add %2, %2, t0"                                           \
+                "\n\t add %0, %0, t0"                                           \
             "\n\t" #op ".v v1, v0"                                              \
-            "\n\t vse" str(SEW)  ".v v1, (%0)"                                  \
-                "\n\t add %2, %2, t0"                                           \
-            "\n\t bnez %1, 1b"                                                  \
-            "\n\t ret"                                                          \
-            :"=m"(y)                                                            \
-            :"r"(n), "m"(x)                                                     \
-            :"t0"                                                               \
+            "\n\t vse" str(SEW)  ".v v1, (%1)"                                  \
+                "\n\t add %1, %1, t0"                                           \
+            "\n\t bnez %2, 1b"                                                  \
+            :"+r"(x), "+r"(y), "+r"(n)                                          \
+            :                                                                   \
+            :"t0","memory"                                                      \
         );                                                                      \
     }
 
@@ -136,29 +133,18 @@ typedef R* V;
 VOP(vfadd, V)         
 VOP(vfsub, V)         
 VOP(vfmul, V)          
-VOP(vfdiv, V)
-
-VOP(vand, Vuint)
-VOP(vor, Vuint)
 
 VFOP(vfmacc, V)
 VFOP(vfmsac, V)
 VFOP(vfnmsac, V)
 
 VOP_UN(vfneg, V)                                      
-VOP_UN(vnot, Vuint)                                      
 
 // Macro wrappers for arithmetic functions
 #define VADD(x, y, z, n)     (vvfadd)(x, y, z, n)
 #define VSUB(x, y, z, n)     (vvfsub)(x, y, z, n)
 #define VMUL(x, y, z, n)     (vvfmul)(x, y, z, n)
-#define VDIV(x, y, z, n)     (vvfdiv)(x, y, z, n)
 #define VNEG(x, y, n)        (vvfneg)(x, y, n)
-
-// Macro wrappers for logical functions
-#define VAND(x, y, z, n)     (vvand)(x, y, z, n)
-#define VOR(x, y, z, n)      (vvand)(x, y, z, n)
-#define VNOT(x, y, n)        (vvnot)(x, y, n)
 
 // Macro wrappers for fused arithmetic functions
 #define VFMA(a, b, c, n)     (vvfmacc)(c, a, b, n)
@@ -167,175 +153,170 @@ VOP_UN(vnot, Vuint)
 
 // z[i] = -z[i] + a[i] * b[i] if i is even
 // z[i] = z[i] + a[i] * b[i] if i is odd
-static inline void VSUBADD(const V x, const V y, V z, const Suint nElem) {
-    const Suint n = 2 * nElem;
-    __asm__ volatile (
-        "1:"                                                                                \
-        "\n\t vsetvli t0, %1, e" str(SEW) ", ta, ma"    /* # of elems left */               \
-        "\n\t vid.v v0"                                 /* 1, 2, 3, 4 ... */                \
-        "\n\t vand.vi v0, v0, 1"                        /* 0, 1, 0, 1 ... */                \
-        "\n\t vnot.v v0, v0, 1"                         /* 1, 0, 1, 0 ... */                \
-        "\n\t vle" str(SEW) ".v v1, (%2)"               /* load x into v1 */                \
-        "\n\t vle" str(SEW) ".v v2, (%3)"               /* load y into v2 */                \
-        "\n\t vle" str(SEW) ".v v3, (%0)"               /* load z into v3 */                \
-            "\n\t sub %1, %1, t0"                       /* decrement elems left by t0 */    \
-            "\n\t slli t0, t0, " str(ESHIFT)            /* convert t0 to bytes */           \
-        "\n\t vneg.v v3, v3, v0.t"                      /* negate even indices of z */      \
-        "\n\t vmul.vv v2, v1, v2"                       /* x[i] * y[i] */                   \
-        "\n\t vadd.vv v3, v2, v3"                       /* accumulate product */            \
-        "\n\t vse" str(SEW) ".v v3, (%0)"               /* store result */                  \
-            "\n\t add %0, %0, t0"                       /* bump pointer */                  \
-            "\n\t add %2, %2, t0"                       /* bump pointer */                  \
-            "\n\t add %3, %3, t0"                       /* bump pointer */                  \
-            "\n\t bnez %1, 1b"                          /* loop back? */                    \
-            "\n\t ret"                                                                      \
-        :"=m"(z)
-        :"r"(n), "m"(x), "m"(y)               
+static inline void VSUBADD(V x, V y, V z, uintptr_t nElem) {
+    uintptr_t n = 2 * nElem;
+    __asm__ volatile ( 
+        "1:"                                                                                    \
+        "\n\t vsetvli t0, %3, e" str(SEW) ", m1, ta, ma"    /* # of elems left */               \
+        "\n\t vid.v v0"                                     /* 1, 2, 3, 4 ... */                \
+        "\n\t vand.vi v0, v0, 1"                            /* 0, 1, 0, 1 ... */                \
+        "\n\t vrsub.vi v0, v0, 1"                           /* 1, 0, 1, 0 ... */                \
+        "\n\t vle" str(SEW) ".v v1, (%0)"                   /* load x into v1 */                \
+        "\n\t vle" str(SEW) ".v v2, (%1)"                   /* load y into v2 */                \
+        "\n\t vle" str(SEW) ".v v3, (%2)"                   /* load z into v3 */                \
+            "\n\t sub %3, %3, t0"                           /* decrement elems left by t0 */    \
+            "\n\t slli t0, t0, " str(ESHIFT)                /* convert t0 to bytes */           \
+        "\n\t vfneg.v v3, v3, v0.t"                         /* negate even indices of z */      \
+        "\n\t vfmul.vv v1, v1, v2"                          /* x[i] * y[i] */                   \
+        "\n\t vfadd.vv v3, v3, v2"                          /* accumulate product */            \
+        "\n\t vse" str(SEW) ".v v3, (%2)"                   /* store result */                  \
+            "\n\t add %0, %0, t0"                           /* bump pointer */                  \
+            "\n\t add %1, %1, t0"                           /* bump pointer */                  \
+            "\n\t add %2, %2, t0"                           /* bump pointer */                  \
+            "\n\t bnez %3, 1b"                              /* loop back? */                    \
+        :"+r"(x), "+r"(y), "+r"(z), "+r"(n)                                                     \
+        :                                                                                       \
+        :"t0","memory"                                                                          \
     );
 }
 
 // z[i] = z[i] + a[i] * b[i] if i is even
 // z[i] = -z[i] + a[i] * b[i] if i is odd
-static inline void VADDSUB(const V x, const V y, V z, const Suint nElem) {
-    const Suint n = 2 * nElem;
+static inline void VADDSUB(V x, V y, V z, uintptr_t nElem) {
+    uintptr_t n = 2 * nElem;
     __asm__ volatile (
-        "1:"                                                                                \
-        "\n\t vsetvli t0, %1, e" str(SEW) ", ta, ma"    /* # of elems left */               \
-        "\n\t vid.v v0"                                 /* 1, 2, 3, 4 ... */                \
-        "\n\t vand.vi v0, v0, 1"                        /* 0, 1, 0, 1 ... */                \
-        "\n\t vle" str(SEW) ".v v1, (%2)"               /* load x into v1 */                \
-        "\n\t vle" str(SEW) ".v v2, (%3)"               /* load y into v2 */                \
-        "\n\t vle" str(SEW) ".v v3, (%0)"               /* load z into v3 */                \
-            "\n\t sub %1, %1, t0"                       /* decrement elems left by t0 */    \
-            "\n\t slli t0, t0, " str(ESHIFT)            /* convert t0 to bytes */           \
-        "\n\t vneg.v v3, v3, v0.t"                      /* negate even indices of z */      \
-        "\n\t vmul.vv v2, v1, v2"                       /* x[i] * y[i] */                   \
-        "\n\t vadd.vv v3, v2, v3"                       /* accumulate product */            \
-        "\n\t vse" str(SEW) ".v v3, (%0)"               /* store result */                  \
-            "\n\t add %0, %0, t0"                       /* bump pointer */                  \
-            "\n\t add %2, %2, t0"                       /* bump pointer */                  \
-            "\n\t add %3, %3, t0"                       /* bump pointer */                  \
-            "\n\t bnez %1, 1b"                          /* loop back? */                    \
-            "\n\t ret"                                                                      \
-        :"=m"(z)
-        :"r"(n), "m"(x), "m"(y)               
+        "1:"                                                                                    \
+        "\n\t vsetvli t0, %3, e" str(SEW) ", m1, ta, ma"    /* # of elems left */               \
+        "\n\t vid.v v0"                                     /* 1, 2, 3, 4 ... */                \
+        "\n\t vand.vi v0, v0, 1"                            /* 0, 1, 0, 1 ... */                \
+        "\n\t vle" str(SEW) ".v v1, (%0)"                   /* load x into v1 */                \
+        "\n\t vle" str(SEW) ".v v2, (%1)"                   /* load y into v2 */                \
+        "\n\t vle" str(SEW) ".v v3, (%2)"                   /* load z into v3 */                \
+            "\n\t sub %3, %3, t0"                           /* decrement elems left by t0 */    \
+            "\n\t slli t0, t0, " str(ESHIFT)                /* convert t0 to bytes */           \
+        "\n\t vfneg.v v3, v3, v0.t"                         /* negate odd indices of z */       \
+        "\n\t vfmul.vv v1, v1, v2"                          /* x[i] * y[i] */                   \
+        "\n\t vfadd.vv v3, v3, v2"                          /* accumulate product */            \
+        "\n\t vse" str(SEW) ".v v3, (%2)"                   /* store result */                  \
+            "\n\t add %0, %0, t0"                           /* bump pointer */                  \
+            "\n\t add %1, %1, t0"                           /* bump pointer */                  \
+            "\n\t add %2, %2, t0"                           /* bump pointer */                  \
+            "\n\t bnez %3, 1b"                              /* loop back? */                    \
+        :"+r"(x), "+r"(y), "+r"(z), "+r"(n)                                                     \
+        :                                                                                       \
+        :"t0","memory"                                                                          \
     );
 }
 
 // a+bi => a+ai for all elements
-static inline void VDUPL(const V src, V res, const Suint nElem) {
-    const Suint n = 2 * nElem;                                                             
-    __asm__ volatile(                                                                       \
-        "1:"                                                                                \
-        "\n\t vsetvli t0, %1, e" str(SEW) ", ta, ma"  /* # of elems left */                 \
-        "\n\t vlseg2e" str(SEW)  ".v v0, (%2)"        /* load Re/Im into v0/v1 */           \
-            "\n\t slli t0, t0, 1"                     /* adjust t0 for double load */       \
-            "\n\t sub %1, %1, t0"                     /* decrement elems left by t0 */      \
-            "\n\t slli t0, t0, " str(ESHIFT)          /* convert # elems to bytes */        \
-            "\n\t add %2, %2, t0"                     /* bump pointer */                    \
-        "\n\t vmv.v.v v1, v0"                         /* replace Im with Re */              \
-        "\n\t vsseg2e" str(SEW) ".v v0, (%0)"         /* store back into memory */          \
-            "\n\t add %0, %0, t0"                     /* bump res pointer */                \
-        "\n\t bnez %1, 1b"                            /* loop back? */                      \
-        "\n\t ret"                                                                          \
-        :"=m"(res)                                                                          \
-        :"r"(n), "m"(src)                                                                   \
-        :"t0"                                                                               \
-    );                                                                                      \
+static inline void VDUPL(V src, V res, uintptr_t nElem) {
+    uintptr_t n = 2 * nElem;                                                             
+    __asm__ volatile(                                                                           \
+        "1:"                                                                                    \
+        "\n\t vsetvli t0, %2, e" str(SEW) ", m1, ta, ma"  /* # of elems left */                 \
+        "\n\t vlseg2e" str(SEW)  ".v v0, (%0)"            /* load Re/Im into v0/v1 */           \
+            "\n\t slli t0, t0, 1"                         /* adjust t0 for double load */       \
+            "\n\t sub %2, %2, t0"                         /* decrement elems left by t0 */      \
+            "\n\t slli t0, t0, " str(ESHIFT)              /* convert # elems to bytes */        \
+            "\n\t add %0, %0, t0"                         /* bump pointer */                    \
+        "\n\t vmv.v.v v1, v0"                             /* replace Im with Re */              \
+        "\n\t vsseg2e" str(SEW) ".v v0, (%1)"             /* store back into memory */          \
+            "\n\t add %1, %1, t0"                         /* bump res pointer */                \
+        "\n\t bnez %2, 1b"                                /* loop back? */                      \
+        :"+r"(src),"+r"(res),"+r"(n)                                                            \
+        :                                                                                       \
+        :"t0","memory"                                                                          \
+    );                                                                                      
 }
 
 // a+bi => b+bi for all elements
-static inline void VDUPH(const V src, V res, const Suint nElem) {
-    const Suint n = 2 * nElem;                                                              \
+static inline void VDUPH(V src, V res, uintptr_t nElem) {
+    uintptr_t n = 2 * nElem;                                                             
     __asm__ volatile(                                                                       \
         "1:"                                                                                \
-        "\n\t vsetvli t0, %1, e" str(SEW) ", ta, ma"  /* # of elems left */                 \
-        "\n\t vlseg2e" str(SEW) ".v v0, (%2)"         /* load Re/Im into v0/v1 */           \
-            "\n\t slli t0, t0, 1"                     /* adjust t0 for double load */       \
-            "\n\t sub %1, %1, t0"                     /* decrement elems left by t0 */      \
-            "\n\t slli t0, t0, " str(ESHIFT)          /* convert t0 to bytes */             \
-            "\n\t add %2, %2, t0"                     /* bump pointer */                    \
-        "\n\t vmv.v.v v0, v1"                         /* replace Re with Im */              \
-        "\n\t vsseg2e" str(SEW) ".v v0, (%0)"         /* store back into memory */          \
-            "\n\t add %0, %0, t0"                     /* bump res pointer */                \
-        "\n\t bnez %1, 1b"                            /* loop back? */                      \
-        "\n\t ret"                                                                          \
-        :"=m"(res)                                                                          \
-        :"r"(n), "m"(src)                                                                   \
-        :"t0"                                                                               \
-    );                                                                                      \
+        "\n\t vsetvli t0, %2, e" str(SEW) ", m1, ta, ma" /* # of elems left */              \
+        "\n\t vlseg2e" str(SEW)  ".v v0, (%0)"           /* load Re/Im into v0/v1 */        \
+            "\n\t slli t0, t0, 1"                        /* adjust t0 for double load */    \
+            "\n\t sub %2, %2, t0"                        /* decrement elems left by t0 */   \
+            "\n\t slli t0, t0, " str(ESHIFT)             /* convert # elems to bytes */     \
+            "\n\t add %0, %0, t0"                        /* bump pointer */                 \
+        "\n\t vmv.v.v v0, v1"                            /* replace Re with Im */           \
+        "\n\t vsseg2e" str(SEW) ".v v0, (%1)"            /* store back into memory */       \
+            "\n\t add %1, %1, t0"                        /* bump res pointer */             \
+        "\n\t bnez %2, 1b"                               /* loop back? */                   \
+        :"+r"(src),"+r"(res),"+r"(n)                                                        \
+        :                                                                                   \
+        :"t0","memory"                                                                      \
+    ); 
 }
 
+
 // a+bi => b+ai for all elements
-static inline void FLIP_RI(const V src, V res, const Suint nElem) {
-    const Suint n = 2 * nElem;
-    const Suint SEWB = SEW / 8; // SEW in bytes
-    __asm__ volatile(                                                                       \
-            "\n\t slli t2, %3, 1"                       /* stride in bytes */               \
-        "1:"                                                                                \
-        "\n\t vsetvli t0, %1, e" str(SEW) ", ta, ma"    /* # of elems left */               \
-        "\n\t vlse" str(SEW) ".v v1, (%2), t2"          /* load Re into v1 */               \
-        "\n\t add t1, %2, %3"                           /* advance one elem */              \
-        "\n\t vlse" str(SEW) ".v v0, t1, t2"            /* load Im into v0 */               \
-            "\n\t slli t0, t0, 1"                       /* adjust t0 for double load */     \
-            "\n\t sub %1, %1, t0"                       /* decrement elems left by t0 */    \
-            "\n\t slli t0, t0, " str(ESHIFT)            /* convert t0 to bytes */           \
-            "\n\t add %2, %2, t0"                       /* bump pointer */                  \
-        "\n\t vsseg2e" str(SEW) ".v v0, (%0)"           /* store back into memory */        \
-            "\n\t add %0, %0, t0"                       /* bump res pointer */              \
-        "\n\t bnez %1, 1b"                              /* loop back? */                    \
-        "\n\t ret"                                                                          \
-        :"=m"(res)                                                                          \
-        :"r"(n), "m"(src), "r"(SEWB)                                                        \
-        :"t0","t1","t2"                                                                     \
+static inline void FLIP_RI(V src, V res, uintptr_t nElem) {
+    uintptr_t n = 2 * nElem;
+    uintptr_t SEWB = SEW / 8; // SEW in bytes
+    __asm__ volatile(                                                                         \
+        "1:"                                                                                  \
+        "\n\t vsetvli t0, %2, e" str(SEW) ", m1, ta, ma"  /* # of elems left */               \
+        "\n\t vlse" str(SEW) ".v v1, (%0), %4"            /* load Re into v1 */               \
+        "\n\t add t1, %0, %3"                             /* advance one elem */              \
+        "\n\t vlse" str(SEW) ".v v0, (t1), %4"            /* load Im into v0 */               \
+            "\n\t slli t0, t0, 1"                         /* adjust t0 for double load */     \
+            "\n\t sub %2, %2, t0"                         /* decrement elems left by t0 */    \
+            "\n\t slli t0, t0, " str(ESHIFT)              /* convert t0 to bytes */           \
+            "\n\t add %0, %0, t0"                         /* bump pointer */                  \
+        "\n\t vsseg2e" str(SEW) ".v v0, (%1)"             /* store back into memory */        \
+            "\n\t add %1, %1, t0"                         /* bump res pointer */              \
+        "\n\t bnez %2, 1b"                                /* loop back? */                    \
+        :"+r"(src),"+r"(res),"+r"(n)                                                          \
+        :"r"(SEWB), "r"(2*SEWB)                                                               \
+        :"t0","t1","memory"                                                              \
     );
 }
 
 // a+bi => a-bi for all elements
-static inline void VCONJ(const V src, V res, const Suint nElem) {
-    const Suint n = 2 * nElem;                                                              \
-    __asm__ volatile(                                                                       \
-        "1:"                                                                                \
-        "\n\t vsetvli t0, %1, e" str(SEW) ", ta, ma"  /* # of elems left */                 \
-        "\n\t vlseg2e" str(SEW)  ".v v0, (%2)"        /* load Re/Im into v0/v1 */           \
-            "\n\t sub %1, %1, t0"                     /* decrement elems left by t0 */      \
-            "\n\t slli t0, t0, " str(ESHIFT)          /* convert t0 to bytes */             \
-            "\n\t add %2, %2, t0"                     /* bump pointer */                    \
-        "\n\t vneg.v v1, v1"                          /* conjugate Im */                    \
-        "\n\t vsseg2e" str(SEW) ".v v0, (%0)"         /* store back into memory */          \
-            "\n\t add %2, %2, t0"                     /* bump pointer */                    \
-        "\n\t bnez %1, 1b"                            /* loop back? */                      \
-        "\n\t ret"                                                                          \
-        :"=m"(res)                                                                          \
-        :"r"(n), "m"(src)                                                                   \
-        :"t0"                                                                               \
-    );                                                                                      \
+static inline void VCONJ(V src, V res, uintptr_t nElem) {
+    uintptr_t n = 2 * nElem;                                                                  \
+    __asm__ volatile(                                                                         \
+        "1:"                                                                                  \
+        "\n\t vsetvli t0, %2, e" str(SEW) ", m1, ta, ma"  /* # of elems left */               \
+        "\n\t vlseg2e" str(SEW)  ".v v0, (%0)"            /* load Re/Im into v0/v1 */         \
+            "\n\t sub %2, %2, t0"                         /* decrement elems left by t0 */    \
+            "\n\t slli t0, t0, " str(ESHIFT)              /* convert t0 to bytes */           \
+            "\n\t add %0, %0, t0"                         /* bump pointer */                  \
+        "\n\t vneg.v v1, v1"                              /* conjugate Im */                  \
+        "\n\t vsseg2e" str(SEW) ".v v0, (%1)"             /* store back into memory */        \
+            "\n\t add %1, %1, t0"                         /* bump pointer */                  \
+        "\n\t bnez %2, 1b"                                /* loop back? */                    \
+        :"+r"(src),"+r"(res),"+r"(n)                                                          \
+        :                                                                                     \
+        :"t0","memory"                                                                        \
+    );                                                                                        
 }
 
 // a+bi => -b+ai for all elements
-static inline void VBYI(const V src, V res, const Suint nElem) {
-    const Suint n = 2 * nElem;
-    const Suint SEWB = SEW / 8; // SEW in bytes
-    __asm__ volatile(                                                                       \
-            "\n\t slli t2, %3, 1"                       /* stride in bytes */               \
-        "1:"                                                                                \
-        "\n\t vsetvli t0, %1, e" str(SEW) ", ta, ma"    /* # of elems left */               \
-        "\n\t vlse" str(SEW) ".v v1, (%2), t2"          /* load Re into v1 */               \
-            "\n\t add t1, %2, %3"                       /* advance one element*/            \
-        "\n\t vlse" str(SEW) ".v v0, t1, t2"            /* load Im into v0 */               \
-            "\n\t slli t0, t0, 1"                       /* adjust t0 for 2x load */         \
-            "\n\t sub %1, %1, t0"                       /* decrement elems left by t0 */    \
-            "\n\t slli t0, t0, " str(ESHIFT)            /* convert t0 to bytes */           \
-            "\n\t add %2, %2, t0"                       /* bump pointer */                  \
-        "\n\t vneg.v.v v0, v0"                          /* conjugate Im */                  \
-        "\n\t vsseg2e" str(SEW) ".v v0, (%0)"           /* store back into memory */        \
-            "\n\t add %0, %0, t0"                       /* bump res pointer */              \
-        "\n\t bnez %1, 1b"                              /* loop back? */                    \
-        "\n\t ret"                                                                          \
-        :"=m"(res)                                                                          \
-        :"r"(n), "m"(src), "r"(SEWB)                                                        \
-        :"t0","t1","t2"                                                                     \
+static inline void VBYI(V src, V res, uintptr_t nElem) {
+    uintptr_t n = 2 * nElem;
+    uintptr_t SEWB = SEW / 8; // SEW in bytes
+    __asm__ volatile(                                                                         \
+        "1:"                                                                                  \
+        "\n\t vsetvli t0, %2, e" str(SEW) ", m1, ta, ma"  /* # of elems left */               \
+        "\n\t vlse" str(SEW) ".v v1, (%0), %4"            /* load Re into v1 */               \
+        "\n\t add t1, %0, %3"                             /* advance one elem */              \
+        "\n\t vlse" str(SEW) ".v v0, (t1), %4"            /* load Im into v0 */               \
+            "\n\t slli t0, t0, 1"                         /* adjust t0 for double load */     \
+            "\n\t sub %2, %2, t0"                         /* decrement elems left by t0 */    \
+            "\n\t slli t0, t0, " str(ESHIFT)              /* convert t0 to bytes */           \
+            "\n\t add %0, %0, t0"                         /* bump pointer */                  \
+        "\n\t vneg.v v0, v0"                              /* conjugate Im */                  \
+        "\n\t vsseg2e" str(SEW) ".v v0, (%1)"             /* store back into memory */        \
+            "\n\t add %1, %1, t0"                         /* bump res pointer */              \
+        "\n\t bnez %2, 1b"                                /* loop back? */                    \
+        :"+r"(src),"+r"(res),"+r"(n)                                                          \
+        :"r"(SEWB),"r"(2*SEWB)                                                                \
+        :"t0","t1","memory"                                                                   \
     );
+
 }
 
 // Hybrid instructions
@@ -347,13 +328,28 @@ static inline void VBYI(const V src, V res, const Suint nElem) {
 #define VFNMSCONJ(b, c, n) VSUB(c, VCONJ(b, n), n)
 
 // (a+bi) * (c+di)
-static inline void VZMUL(V tx, V sr, V res, const Suint nElem) {
-    const Suint n = 2 * nElem;
+static inline void VZMUL(V tx, V sr, V res, uintptr_t nElem) {
+    uintptr_t n = 2 * nElem;
     R txRe[n];
     R txIm[n];
-    memset(&txRe, 0, n * SEW);
-    memset(&txIm, 0, n * SEW);
-
+    V rePtr = &txRe[0];
+    V imPtr = &txIm[0];
+    __asm__ volatile(
+        "1:"                        
+        "\n\t vsetvli t0, %2, e" str(SEW) ", m1, ta, ma"
+        "\n\t vmv.v.i v0, 0"
+        "\n\t vse" str(SEW) ".v v0, (%0)"
+        "\n\t vse" str(SEW) ".v v0, (%1)"
+            "\n\t sub %2, %2, t0"
+            "\n\t slli t0, t0, " str(ESHIFT)
+            "\n\t add %0, %0, t0"
+            "\n\t add %1, %1, t0"
+        "\n\t bnez %2, 1b"
+        :
+        :"r"(rePtr), "r"(imPtr), "r"(n)
+        :"t0", "memory"
+    );
+  
     VDUPL(tx, &txRe[0], nElem);
     VDUPH(tx, &txIm[0], nElem);
     FLIP_RI(sr, res, nElem);
@@ -364,8 +360,8 @@ static inline void VZMUL(V tx, V sr, V res, const Suint nElem) {
 }
 
 // conj(a+bi) * (c+di)
-static inline void VZMULJ(V tx, V sr, V res, const Suint nElem) {
-    const Suint n = 2 * nElem;
+static inline void VZMULJ(V tx, V sr, V res, uintptr_t nElem) {
+    uintptr_t n = 2 * nElem;
     R txRe[n];
     R txIm[n];
     memset(&txRe, 0, n * SEW);
@@ -381,8 +377,8 @@ static inline void VZMULJ(V tx, V sr, V res, const Suint nElem) {
 }
 
 // (a+bi) * (c+di) -> conj -> flip R/I
-static inline void VZMULI(V tx, V sr, V res, const Suint nElem) {
-    const Suint n = 2 * nElem;
+static inline void VZMULI(V tx, V sr, V res, uintptr_t nElem) {
+    uintptr_t n = 2 * nElem;
     R txRe[n];
     memset(&txRe, 0, n * SEW);
 
@@ -395,8 +391,8 @@ static inline void VZMULI(V tx, V sr, V res, const Suint nElem) {
 }
 
 // (a+bi) * (c+di) -> flip R/I -> conj
-static inline void VZMULIJ(V tx, V sr, V res, const Suint nElem) {
-    const Suint n = 2 * nElem;
+static inline void VZMULIJ(V tx, V sr, V res, uintptr_t nElem) {
+    uintptr_t n = 2 * nElem;
     R txRe[n];
     R txIm[n];
     memset(&txRe, 0, n * SEW);
@@ -409,7 +405,22 @@ static inline void VZMULIJ(V tx, V sr, V res, const Suint nElem) {
     VADDSUB(sr, &txIm[0], res, nElem);
 }
 
-// static inline void ST(R *x, V v, INT ovs, const R *aligned_like) {
+// Loads data from x into new vector
+// Assumes that it can fit into single vector
+static inline V LDA(R* x, INT ivs, R* aligned_like, uintptr_t nElem) {
+    (void) aligned_like; // suppress unused var warning
+    V res = calloc(nElem*2, sizeof(R));
+    memcpy(res, x, 2*nElem*sizeof(R));
+    return res;
+}
+
+// Stores data from v into x
+static inline void STA(R* x, V v, INT ovs, R* aligned_like, uintptr_t nElem) {
+    (void) aligned_like; // suppress unused var warning
+    memcpy(v, x, 2*nElem*sizeof(R));
+}
+
+// static inline void ST(R *x, V v, INT ovs, R *aligned_like) {
 //     (void)aligned_like; // suppress unused var warning
 
 //     Vuint idx = TYPEUINT(vid_v)(VL); // (0, 1, 2, 3, ...)
@@ -425,8 +436,10 @@ static inline void VZMULIJ(V tx, V sr, V res, const Suint nElem) {
 // }
 
 // #define USE_VTW1
-// #define VLEN32 ({ Suint vlen; __asm__ volatile ("vsetvli %0, zero, e32, m1, ta, ma" : r(vlen)); vlen; })
-// #define VLEN64 ({ Suint vlen; __asm__ volatile ("vsetvli %0, zero, e64, m1, ta, ma" : r(vlen)); vlen; })
+// #define VLEN32 ({ uintptr_t vlen; __asm__ volatile ("vsetvli %0, zero, e32, m1, ta, ma" : r(vlen)); vlen; })
+// #define VLEN64 ({ uintptr_t vlen; __asm__ volatile ("vsetvli %0, zero, e64, m1, ta, ma" : r(vlen)); vlen; })
 // #include "vtw.h"
 // #undef USE_VTW1
+
+
 
