@@ -29,6 +29,9 @@
 #if !defined(__riscv_xlen) || __riscv_xlen != 64
 #error "RISCV-V vector extension targets RV64"
 #endif
+#if !defined(__riscv_xlen) || __riscv_xlen != 64
+#error "RISCV-V vector extension targets RV64"
+#endif
 
 #if defined(FFTW_LDOUBLE) || defined(FFTW_QUAD)
 #error "RISC-V V vector instructions only works in single or double precision"
