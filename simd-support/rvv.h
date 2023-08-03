@@ -285,7 +285,7 @@ static inline void VCONJ(V src, V res, uintptr_t nElem) {
         "1:"
         "\n\t vsetvli t0, %2, e" str(SEW) ", m1, ta, ma"  /* # of elems left */
         "\n\t vlseg2e" str(SEW)  ".v v0, (%0)"            /* load Re/Im into v0/v1 */
-        "\n\t vneg.v v1, v1"                              /* conjugate Im */
+        "\n\t vfneg.v v1, v1"                             /* conjugate Im */
         "\n\t vsseg2e" str(SEW) ".v v0, (%1)"             /* store back into memory */
             "\n\t slli t0, t0, 1"                         /* account for 2x load */
             "\n\t sub %2, %2, t0"                         /* decrement elems left by t0 */
@@ -385,11 +385,12 @@ static inline void VZMULJ(V tx, V sr, V res, uintptr_t nElem) {
         :"r"(tr), "r"(n)
         :"t0", "memory"
     );
+
     VDUPL(tx, tr, nElem);
     VDUPH(tx, res, nElem);
     VMUL(tr, sr, tr, nElem);
     VBYI(sr, srf, nElem);
-    VFNMS(tr, srf, res, nElem);
+    VFNMS(srf, tr, res, nElem); // -(res*sr)+tr
 }
 
 // (a+bi) * (c+di) -> conj -> flip R/I
@@ -421,12 +422,12 @@ static inline void VZMULI(V tx, V sr, V res, uintptr_t nElem) {
     VFMS(tr, srf, res, nElem);
 }
 
-// (a+bi) * (c+di) -> flip R/I -> conj
+// (b+ai) * (c+di)
 static inline void VZMULIJ(V tx, V sr, V res, uintptr_t nElem) {
     uintptr_t n = 2 * nElem;
-    R txRe[n];
+    R txIm[n];
     R srFlip[n];
-    V tr = &txRe[0];
+    V ti = &txIm[0];
     V srf = &srFlip[0];
 
     __asm__ volatile(
@@ -439,16 +440,16 @@ static inline void VZMULIJ(V tx, V sr, V res, uintptr_t nElem) {
             "\n\t add %0, %0, t0"
         "\n\t bnez %1, 1b"
         :
-        :"r"(tr),"r"(n)
+        :"r"(ti),"r"(n)
         :"t0", "memory"
     );
 
-    VDUPL(tx, tr, nElem);
-    VDUPH(tx, res, nElem);
-    VMUL(res, sr, res, nElem);
+    VDUPL(tx, res, nElem);
+    VDUPH(tx, ti, nElem);
+    VMUL(ti, sr, ti, nElem);
     FLIP_RI(sr, srf, nElem);
-    VMUL(tr, srf, tr, nElem);
-    VSUBADD(tr, res, nElem);
+    VMUL(res, srf, res, nElem);
+    VSUBADD(ti, res, nElem);
 }
 
 // Loads data from x into new vector
