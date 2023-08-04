@@ -29,18 +29,11 @@
 #if !defined(__riscv_xlen) || __riscv_xlen != 64
 #error "RISCV-V vector extension targets RV64"
 #endif
-#if !defined(__riscv_xlen) || __riscv_xlen != 64
-#error "RISCV-V vector extension targets RV64"
-#endif
-
-#if defined(FFTW_LDOUBLE) || defined(FFTW_QUAD)
-#error "RISC-V V vector instructions only works in single or double precision"
-#endif
 
 #ifdef FFTW_SINGLE
  #  define DS(d, s) s /* single-precision option */
  #  define SEW 32
- #  define ESHIFT 2   /* FIXME: Add 1 for complex elems? */
+ #  define ESHIFT 2
 #else
  #  define DS(d, s) d /* double-precision option */
  #  define SEW 64
@@ -66,72 +59,72 @@ typedef Suint* Vuint;
 typedef R* V;
 
 // Assembly for basic arithmetic operations
-#define VOP(op, etype)                                                   \
-    void v##op(etype x, etype y, etype z, uintptr_t nElem) {             \
-        uintptr_t n = 2 * nElem;                                         \
-        __asm__ volatile(                                                \
-            "1:"                                                         \
-            "\n\t vsetvli t0, %3, e" str(SEW) ", m1, ta, ma"             \
-            "\n\t vle" str(SEW)  ".v v0, (%0)"                           \
-            "\n\t vle" str(SEW)  ".v v1, (%1)"                           \
-            "\n\t" #op ".vv v2, v0, v1"                                  \
-            "\n\t vse" str(SEW)  ".v v2, (%2)"                           \
-                "\n\t sub %3, %3, t0"                                    \
-                "\n\t slli t0, t0, " str(ESHIFT)                         \
-                "\n\t add %0, %0, t0"                                    \
-                "\n\t add %1, %1, t0"                                    \
-                "\n\t add %2, %2, t0"                                    \
-                "\n\t bnez %3, 1b"                                       \
-            :                                                            \
-            :"r"(x), "r"(y), "r"(z), "r"(n)                              \
-            :"t0","memory"                                               \
-        );                                                               \
-    }                                                                    \
+#define VOP(op, etype)                                                          \
+    void v##op(const etype x, const etype y, etype z, const uintptr_t nElem) {  \
+        uintptr_t n = 2 * nElem;                                                \
+        __asm__ volatile(                                                       \
+            "1:"                                                                \
+            "\n\t vsetvli t0, %3, e" str(SEW) ", m1, ta, ma"                    \
+            "\n\t vle" str(SEW)  ".v v0, (%0)"                                  \
+            "\n\t vle" str(SEW)  ".v v1, (%1)"                                  \
+            "\n\t" #op ".vv v2, v0, v1"                                         \
+            "\n\t vse" str(SEW)  ".v v2, (%2)"                                  \
+                "\n\t sub %3, %3, t0"                                           \
+                "\n\t slli t0, t0, " str(ESHIFT)                                \
+                "\n\t add %0, %0, t0"                                           \
+                "\n\t add %1, %1, t0"                                           \
+                "\n\t add %2, %2, t0"                                           \
+                "\n\t bnez %3, 1b"                                              \
+            :                                                                   \
+            :"r"(x), "r"(y), "r"(z), "r"(n)                                     \
+            :"t0","memory"                                                      \
+        );                                                                      \
+    }                                                                           \
 
 // Assembly for fused arithmetic instructions
-#define VFOP(op, etype)                                                  \
-    void v##op(etype x, etype y, etype z, uintptr_t nElem) {             \
-        uintptr_t n = 2 * nElem;                                         \
-        __asm__ volatile(                                                \
-            "1:"                                                         \
-            "\n\t vsetvli t0, %3, e" str(SEW) ", m1, ta, ma"             \
-            "\n\t vle" str(SEW) ".v v0, (%0)"                           \
-            "\n\t vle" str(SEW) ".v v1, (%1)"                           \
-            "\n\t vle" str(SEW) ".v v2, (%2)"                            \
-            "\n\t" #op ".vv v2, v0, v1"                                  \
-            "\n\t vse" str(SEW)  ".v v2, (%2)"                           \
-                "\n\t sub %3, %3, t0"                                    \
-                "\n\t slli t0, t0, " str(ESHIFT)                         \
-                "\n\t add %0, %0, t0"                                    \
-                "\n\t add %1, %1, t0"                                    \
-                "\n\t add %2, %2, t0"                                    \
-                "\n\t bnez %3, 1b"                                       \
-            :                                                            \
-            :"r"(x), "r"(y), "r"(z), "r"(n)                              \
-            :"t0","memory"                                               \
-        );                                                               \
-    }                                                                    \
+#define VFOP(op, etype)                                                         \
+    void v##op(const etype x, const etype y, etype z, const uintptr_t nElem) {  \
+        uintptr_t n = 2 * nElem;                                                \
+        __asm__ volatile(                                                       \
+            "1:"                                                                \
+            "\n\t vsetvli t0, %3, e" str(SEW) ", m1, ta, ma"                    \
+            "\n\t vle" str(SEW) ".v v0, (%0)"                                   \
+            "\n\t vle" str(SEW) ".v v1, (%1)"                                   \
+            "\n\t vle" str(SEW) ".v v2, (%2)"                                   \
+            "\n\t" #op ".vv v2, v0, v1"                                         \
+            "\n\t vse" str(SEW)  ".v v2, (%2)"                                  \
+                "\n\t sub %3, %3, t0"                                           \
+                "\n\t slli t0, t0, " str(ESHIFT)                                \
+                "\n\t add %0, %0, t0"                                           \
+                "\n\t add %1, %1, t0"                                           \
+                "\n\t add %2, %2, t0"                                           \
+                "\n\t bnez %3, 1b"                                              \
+            :                                                                   \
+            :"r"(x), "r"(y), "r"(z), "r"(n)                                     \
+            :"t0","memory"                                                      \
+        );                                                                      \
+    }                                                                           \
 
 // Assembly for unary operations
-#define VOP_UN(op, etype)                                                \
-    void v##op(etype x, etype y, uintptr_t nElem) {                      \
-        uintptr_t n = 2 * nElem;                                         \
-        __asm__ volatile(                                                \
-            "1:"                                                         \
-            "\n\t vsetvli t0, %2, e" str(SEW) ", m1, ta, ma"             \
-            "\n\t vle" str(SEW)  ".v v0, (%0)"                           \
-            "\n\t" #op ".v v1, v0"                                       \
-            "\n\t vse" str(SEW)  ".v v1, (%1)"                           \
-                "\n\t sub %2, %2, t0"                                    \
-                "\n\t slli t0, t0, " str(ESHIFT)                         \
-                "\n\t add %0, %0, t0"                                    \
-                "\n\t add %1, %1, t0"                                    \
-            "\n\t bnez %2, 1b"                                           \
-            :                                                            \
-            :"r"(x), "r"(y), "r"(n)                                      \
-            :"t0","memory"                                               \
-        );                                                               \
-    }                                                                    \
+#define VOP_UN(op, etype)                                                       \
+    void v##op(const etype x, etype y, const uintptr_t nElem) {                 \
+        uintptr_t n = 2 * nElem;                                                \
+        __asm__ volatile(                                                       \
+            "1:"                                                                \
+            "\n\t vsetvli t0, %2, e" str(SEW) ", m1, ta, ma"                    \
+            "\n\t vle" str(SEW)  ".v v0, (%0)"                                  \
+            "\n\t" #op ".v v1, v0"                                              \
+            "\n\t vse" str(SEW)  ".v v1, (%1)"                                  \
+                "\n\t sub %2, %2, t0"                                           \
+                "\n\t slli t0, t0, " str(ESHIFT)                                \
+                "\n\t add %0, %0, t0"                                           \
+                "\n\t add %1, %1, t0"                                           \
+            "\n\t bnez %2, 1b"                                                  \
+            :                                                                   \
+            :"r"(x), "r"(y), "r"(n)                                             \
+            :"t0","memory"                                                      \
+        );                                                                      \
+    }                                                                           \
 
 // Generate prototypes
 VOP(vfadd, V)
@@ -157,7 +150,7 @@ VOP_UN(vfneg, V)
 
 // y[i] = x[i] - y[i] if i is odd
 // y[i] = x[i] + y[i] if i is even
-static inline void VSUBADD(V x, V y, uintptr_t nElem) {
+static inline void VSUBADD(const V x, V y, const uintptr_t nElem) {
     uintptr_t n = 2 * nElem;
     __asm__ volatile (
         "\n\t 1:"
@@ -181,34 +174,8 @@ static inline void VSUBADD(V x, V y, uintptr_t nElem) {
     );
 }
 
-// y[i] = x[i] + y[i] if i is odd
-// y[i] = x[i] - y[i] if i is even
-static inline void VADDSUB(V x, V y, uintptr_t nElem) {
-    uintptr_t n = 2 * nElem;
-    __asm__ volatile (
-        "\n\t 1:"
-        "\n\t vsetvli t0, %2, e" str(SEW) ", m1, ta, ma"    /* # of elems left */
-        "\n\t vlseg2e" str(SEW) ".v v0, (%0)"
-        "\n\t vlseg2e" str(SEW) ".v v2, (%1)"
-        "\n\t vfadd.vv v2, v0, v2"                          /* accumulate product */
-        "\n\t vfsub.vv v3, v1, v3"                          /* accumulate product */
-        "\n\t vsseg2e" str(SEW) ".v v2, (%1)"           
-            "\n\t slli t0, t0, 1"                        
-            "\n\t sub %2, %2, t0"
-            "\n\t slli t0, t0, " str(ESHIFT)                /* # elems in bytes */
-            "\n\t add %0, %0, t0"                           /* bump pointer */
-            "\n\t add %1, %1, t0"                           /* bump pointer */
-        "\n\t bgt %2, t0, 1b"                               /* loop back? */
-        "\n\t srai %2, %2, 1"                               /* half load for final pass */
-        "\n\t bgtz %2, 1b"                                  /* make final pass */
-        :
-        :"r"(x), "r"(y), "r"(n)
-        :"t0","memory"
-    );
-}
-
 // a+bi => a+ai for all elements
-static inline void VDUPL(V src, V res, uintptr_t nElem) {
+static inline void VDUPL(const V src, V res, const uintptr_t nElem) {
     uintptr_t n = 2 * nElem;
     uintptr_t stride = SEW/4; // stride in bytes
     __asm__ volatile(
@@ -232,7 +199,7 @@ static inline void VDUPL(V src, V res, uintptr_t nElem) {
 }
 
 // a+bi => b+bi for all elements
-static inline void VDUPH(V src, V res, uintptr_t nElem) {
+static inline void VDUPH(const V src, V res, const uintptr_t nElem) {
     uintptr_t n = 2 * nElem;
     uintptr_t stride = SEW/4;
     __asm__ volatile(
@@ -257,7 +224,7 @@ static inline void VDUPH(V src, V res, uintptr_t nElem) {
 
 
 // a+bi => b+ai for all elements
-static inline void FLIP_RI(V src, V res, uintptr_t nElem) {
+static inline void FLIP_RI(const V src, V res, const uintptr_t nElem) {
     uintptr_t n = 2 * nElem;
     __asm__ volatile(
         "1:"
@@ -282,7 +249,7 @@ static inline void FLIP_RI(V src, V res, uintptr_t nElem) {
 }
 
 // a+bi => a-bi for all elements
-static inline void VCONJ(V src, V res, uintptr_t nElem) {
+static inline void VCONJ(const V src, V res, const uintptr_t nElem) {
     uintptr_t n = 2 * nElem;
     __asm__ volatile(
         "1:"
@@ -305,7 +272,7 @@ static inline void VCONJ(V src, V res, uintptr_t nElem) {
 }
 
 // a+bi => -b+ai for all elements
-static inline void VBYI(V src, V res, uintptr_t nElem) {
+static inline void VBYI(const V src, V res, const uintptr_t nElem) {
     uintptr_t n = 2 * nElem;
     __asm__ volatile(
         "1:"
@@ -338,7 +305,7 @@ static inline void VBYI(V src, V res, uintptr_t nElem) {
 #define VFNMSCONJ(b, c, n) VSUB(c, VCONJ(b, n), n)
 
 // (a+bi) * (c+di)
-static inline void VZMUL(V tx, V sr, V res, uintptr_t nElem) {
+static inline void VZMUL(const V tx, const V sr, V res, const uintptr_t nElem) {
     uintptr_t n = 2 * nElem;
     R txRe[n];
     R srFlip[n]; // prevent modifying sr
@@ -368,7 +335,7 @@ static inline void VZMUL(V tx, V sr, V res, uintptr_t nElem) {
 }
 
 // conj(a+bi) * (c+di)
-static inline void VZMULJ(V tx, V sr, V res, uintptr_t nElem) {
+static inline void VZMULJ(const V tx, const V sr, V res, const uintptr_t nElem) {
     uintptr_t n = 2 * nElem;
     R txRe[n];
     R srFlip[n];
@@ -397,7 +364,7 @@ static inline void VZMULJ(V tx, V sr, V res, uintptr_t nElem) {
 }
 
 // (a+bi) * (c+di) -> conj -> flip R/I
-static inline void VZMULI(V tx, V sr, V res, uintptr_t nElem) {
+static inline void VZMULI(const V tx, const V sr, V res, const uintptr_t nElem) {
     uintptr_t n = 2 * nElem;
     R txRe[n];
     R srFlip[n];
@@ -426,7 +393,7 @@ static inline void VZMULI(V tx, V sr, V res, uintptr_t nElem) {
 }
 
 // (b+ai) * (c+di)
-static inline void VZMULIJ(V tx, V sr, V res, uintptr_t nElem) {
+static inline void VZMULIJ(const V tx, const V sr, V res, const uintptr_t nElem) {
     uintptr_t n = 2 * nElem;
     R txIm[n];
     R srFlip[n];
@@ -457,7 +424,7 @@ static inline void VZMULIJ(V tx, V sr, V res, uintptr_t nElem) {
 
 // Loads data from x into new vector
 // Assumes that it can fit into single vector
-static inline V LDA(R* x, INT ivs, R* aligned_like, uintptr_t nElem) {
+static inline V LDA(R* x, INT ivs, R* aligned_like, const uintptr_t nElem) {
     (void) aligned_like; // suppress unused var warning
     V res = calloc(nElem*2, sizeof(R));
     memcpy(res, x, 2*nElem*sizeof(R));
@@ -465,7 +432,7 @@ static inline V LDA(R* x, INT ivs, R* aligned_like, uintptr_t nElem) {
 }
 
 // Stores data from v into x
-static inline void STA(R* x, V v, INT ovs, R* aligned_like, uintptr_t nElem) {
+static inline void STA(R* x, V v, INT ovs, R* aligned_like, const uintptr_t nElem) {
     (void) aligned_like; // suppress unused var warning
     memcpy(v, x, 2*nElem*sizeof(R));
 }
