@@ -148,28 +148,30 @@ VOP_UN(vfneg, V)
 #define VFMS(a, b, c, n)     (vvfmsac)(a, b, c, n)
 #define VFNMS(a, b, c, n)    (vvfnmsub)(a, b, c, n)
 
-// y[i] = x[i] - y[i] if i is odd
-// y[i] = x[i] + y[i] if i is even
-static inline void VSUBADD(const V x, V y, const uintptr_t nElem) {
+// z[i] += x[i] * y[i] if i is odd
+// z[i] -= x[i] + y[i] if i is even
+static inline void VSUBADD(const V x, const V y, V z, const uintptr_t nElem) {
     uintptr_t n = 2 * nElem;
     __asm__ volatile (
         "\n\t 1:"
-        "\n\t vsetvli t0, %2, e" str(SEW) ", m1, ta, ma"    /* # of elems left */
+        "\n\t vsetvli t0, %3, e" str(SEW) ", m1, ta, ma"    /* # of elems left */
         "\n\t vlseg2e" str(SEW) ".v v0, (%0)"
         "\n\t vlseg2e" str(SEW) ".v v2, (%1)"
-        "\n\t vfsub.vv v2, v0, v2"                          /* accumulate product */
-        "\n\t vfadd.vv v3, v1, v3"                          /* accumulate product */
-        "\n\t vsseg2e" str(SEW) ".v v2, (%1)"           
-            "\n\t slli t0, t0, 1"                        
-            "\n\t sub %2, %2, t0"
+        "\n\t vlseg2e" str(SEW) ".v v4, (%2)"
+        "\n\t vfmacc.vv v4, v0, v2"                         /* z[i] += x[i] * y[i] */
+        "\n\t vfnmsac.vv v5, v1, v3"                        /* z[i] -= x[i] * y[i] */
+        "\n\t vsseg2e" str(SEW) ".v v4, (%2)"
+            "\n\t slli t0, t0, 1"
+            "\n\t sub %3, %3, t0"
             "\n\t slli t0, t0, " str(ESHIFT)                /* # elems in bytes */
             "\n\t add %0, %0, t0"                           /* bump pointer */
             "\n\t add %1, %1, t0"                           /* bump pointer */
-        "\n\t bgt %2, t0, 1b"                               /* loop back? */
-        "\n\t srai %2, %2, 1"                               /* half load for final pass */
-        "\n\t bgtz %2, 1b"                                  /* make final pass */
+            "\n\t add %2, %2, t0"                           /* bump pointer */
+        "\n\t bgt %3, t0, 1b"                               /* loop back? */
+        "\n\t srai %3, %3, 1"                               /* half load for final pass */
+        "\n\t bgtz %3, 1b"                                  /* make final pass */
         :
-        :"r"(x), "r"(y), "r"(n)
+        :"r"(x), "r"(y), "r"(z), "r"(n)
         :"t0","memory"
     );
 }
@@ -308,59 +310,26 @@ static inline void VBYI(const V src, V res, const uintptr_t nElem) {
 static inline void VZMUL(const V tx, const V sr, V res, const uintptr_t nElem) {
     uintptr_t n = 2 * nElem;
     R txRe[n];
-    R srFlip[n]; // prevent modifying sr
-    V tr = &txRe[0];
-    V srf = &srFlip[0];
+    R txIm[n];
 
-    __asm__ volatile(
-        "1:"
-        "\n\t vsetvli t0, %1, e" str(SEW) ", m1, ta, ma"
-        "\n\t vmv.v.i v0, 0"
-        "\n\t vse" str(SEW) ".v v0, (%0)"
-            "\n\t sub %1, %1, t0"
-            "\n\t slli t0, t0, " str(ESHIFT)
-            "\n\t add %0, %0, t0"
-        "\n\t bnez %1, 1b"
-        :
-        :"r"(tr), "r"(n)
-        :"t0", "memory"
-    );
-
-    VDUPL(tx, tr, nElem);
-    VDUPH(tx, res, nElem);
-    VMUL(tr, sr, tr, nElem);
-    FLIP_RI(sr, srf, nElem);
-    VMUL(res, srf, res, nElem);
-    VSUBADD(tr, res, nElem);
+    VDUPL(tx, &txRe[0], nElem);
+    VDUPH(tx, &txIm[0], nElem);
+    FLIP_RI(sr, res, nElem);
+    VMUL(&txIm[0], res, res, nElem);
+    VSUBADD(&txRe[0], sr, res, nElem);
 }
 
 // conj(a+bi) * (c+di)
 static inline void VZMULJ(const V tx, const V sr, V res, const uintptr_t nElem) {
     uintptr_t n = 2 * nElem;
     R txRe[n];
-    R srFlip[n];
-    V tr = &txRe[0];
-    V srf = &srFlip[0];
+    R srFlip[n]; // sr is const, need extra space for VBYI
 
-    __asm__ volatile(
-        "1:"
-        "\n\t vsetvli t0, %1, e" str(SEW) ", m1, ta, ma"
-        "\n\t vmv.v.i v0, 0"
-        "\n\t vse" str(SEW) ".v v0, (%0)"
-            "\n\t sub %1, %1, t0"
-            "\n\t slli t0, t0, " str(ESHIFT)
-            "\n\t add %0, %0, t0"
-        "\n\t bnez %1, 1b"
-        :
-        :"r"(tr), "r"(n)
-        :"t0", "memory"
-    );
-
-    VDUPL(tx, tr, nElem);
+    VDUPL(tx, &txRe[0], nElem);
     VDUPH(tx, res, nElem);
-    VMUL(tr, sr, tr, nElem);
-    VBYI(sr, srf, nElem);
-    VFNMS(srf, tr, res, nElem); // -(res*sr)+tr
+    VMUL(&txRe[0], sr, &txRe[0], nElem);
+    VBYI(sr, &srFlip[0], nElem);
+    VFNMS(&srFlip[0], &txRe[0], res, nElem); // -(res*sr)+tr   
 }
 
 // (a+bi) * (c+di) -> conj -> flip R/I
@@ -368,58 +337,25 @@ static inline void VZMULI(const V tx, const V sr, V res, const uintptr_t nElem) 
     uintptr_t n = 2 * nElem;
     R txRe[n];
     R srFlip[n];
-    V tr = &txRe[0];
-    V srf = &srFlip[0];
 
-    __asm__ volatile(
-        "1:"
-        "\n\t vsetvli t0, %1, e" str(SEW) ", m1, ta, ma"
-        "\n\t vmv.v.i v0, 0"
-        "\n\t vse" str(SEW) ".v v0, (%0)"
-            "\n\t sub %1, %1, t0"
-            "\n\t slli t0, t0, " str(ESHIFT)
-            "\n\t add %0, %0, t0"
-        "\n\t bnez %1, 1b"
-        :
-        :"r"(tr),"r"(n)
-        :"t0", "memory"
-    );
-
-    VDUPL(tx, tr, nElem);
+    VDUPL(tx, &txRe[0], nElem);
     VDUPH(tx, res, nElem);
     VMUL(res, sr, res, nElem);
-    VBYI(sr, srf, nElem);
-    VFMS(tr, srf, res, nElem);
+    VBYI(sr, &srFlip[0], nElem);
+    VFMS(&txRe[0], &srFlip[0], res, nElem);
 }
 
 // (b+ai) * (c+di)
 static inline void VZMULIJ(const V tx, const V sr, V res, const uintptr_t nElem) {
     uintptr_t n = 2 * nElem;
-    R txIm[n];
-    R srFlip[n];
-    V ti = &txIm[0];
-    V srf = &srFlip[0];
+    R txRe[n];
+	R srFlip[n];
 
-    __asm__ volatile(
-        "1:"
-        "\n\t vsetvli t0, %1, e" str(SEW) ", m1, ta, ma"
-        "\n\t vmv.v.i v0, 0"
-        "\n\t vse" str(SEW) ".v v0, (%0)"
-            "\n\t sub %1, %1, t0"
-            "\n\t slli t0, t0, " str(ESHIFT)
-            "\n\t add %0, %0, t0"
-        "\n\t bnez %1, 1b"
-        :
-        :"r"(ti),"r"(n)
-        :"t0", "memory"
-    );
-
-    VDUPL(tx, res, nElem);
-    VDUPH(tx, ti, nElem);
-    VMUL(ti, sr, ti, nElem);
-    FLIP_RI(sr, srf, nElem);
-    VMUL(res, srf, res, nElem);
-    VSUBADD(ti, res, nElem);
+    VDUPL(tx, &txRe[0], nElem);
+    VDUPH(tx, res, nElem);
+    VMUL(sr, &txRe[0], &txRe[0], nElem);
+    VBYI(sr, &srFlip[0], nElem);
+    VFMA(&txRe[0], &srFlip[0], res, nElem);
 }
 
 // Loads data from x into new vector
