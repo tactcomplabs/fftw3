@@ -283,8 +283,8 @@ static inline void VZMULI(const V tx, const V sr, V res, const Suint nElem) {
     VDUPL(tx, &tr[0], nElem);
     VDUPH(tx, res, nElem);
     VMUL(res, sr, res, nElem);
-    VBYI(sr, &sr[0], nElem);
-    VFMS(&tr[0], &sr[0], res, nElem);
+    VBYI(sr, &srf[0], nElem);
+    VFMS(&tr[0], &srf[0], res, nElem);
 }
 
 // (b+ai) * (c+di)
@@ -294,8 +294,8 @@ static inline void VZMULIJ(const V tx, const V sr, V res, const Suint nElem) {
     VDUPL(tx, &tr[0], nElem);
     VDUPH(tx, res, nElem);
     VMUL(res, sr, res, nElem);
-    VBYI(sr, &sr[0], nElem);
-    VFMA(&tr[0], &sr[0], res, nElem);
+    VBYI(sr, &srf[0], nElem);
+    VFMA(&tr[0], &srf[0], res, nElem);
 }
 
 // Loads data from x into new vector
